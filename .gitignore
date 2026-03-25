@@ -1,0 +1,59 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+
+# ─── Virtual Environment ──────────────────────────────────────────────────────
+env/
+venv/
+.venv/
+ENV/
+
+# ─── Environment Variables (NEVER push this) ──────────────────────────────────
+.env
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+*.db
+*.sqlite3
+
+# ─── Sentence-BERT model cache (large files, auto-downloads) ──────────────────
+.cache/
+models/
+sentence_transformers/
+~/.cache/huggingface/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Pytest / Coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ─── Build ────────────────────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+
+# ─── Node (for React frontend) ────────────────────────────────────────────────
+node_modules/
+dist/
+.next/
+frontend/.env
+frontend/.env.local

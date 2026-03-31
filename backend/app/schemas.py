@@ -38,6 +38,8 @@ class PipelineSummary(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=3, max_length=500, description="Research topic or keywords")
     top_n: int = Field(default=20, ge=1, le=50, description="Number of top papers to return")
+    year_from: int | None = Field(default=None, ge=1900, le=2030, description="Filter papers from this year onwards")
+    year_to: int | None = Field(default=None, ge=1900, le=2030, description="Filter papers up to this year")
 
 
 class SearchResponse(BaseModel):

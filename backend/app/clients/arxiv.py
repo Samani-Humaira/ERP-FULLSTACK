@@ -1,5 +1,6 @@
 import httpx
 import xml.etree.ElementTree as ET
+from typing import Optional
 from app.schemas import PaperResult, SearchSource
 import logging
 import re
@@ -21,13 +22,29 @@ def _parse_arxiv_id(entry_id: str) -> str:
     return match.group(1) if match else entry_id
 
 
-async def fetch_arxiv(query: str, limit: int = 50) -> list[PaperResult]:
+async def fetch_arxiv(query: str, limit: int = 50, year_from: Optional[int] = None, year_to: Optional[int] = None) -> list[PaperResult]:
     """
     Fetches papers from arXiv Atom API.
     arXiv has no auth requirement for basic search.
     """
+    # Build search query with year filters
+    search_query = f"all:{query}"
+    if year_from is not None or year_to is not None:
+        date_filter = "submittedDate:["
+        if year_from is not None:
+            date_filter += f"{year_from}0101"
+        else:
+            date_filter += "19000101"  # Default start
+        date_filter += " TO "
+        if year_to is not None:
+            date_filter += f"{year_to}1231"
+        else:
+            date_filter += "20301231"  # Default end
+        date_filter += "]"
+        search_query += f" AND {date_filter}"
+
     params = {
-        "search_query": f"all:{query}",
+        "search_query": search_query,
         "start": 0,
         "max_results": min(limit, 100),
         "sortBy": "relevance",

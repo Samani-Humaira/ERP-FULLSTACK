@@ -1,4 +1,5 @@
 import httpx
+from typing import Optional
 from app.schemas import PaperResult, SearchSource
 import logging
 
@@ -9,7 +10,7 @@ CROSSREF_URL = "https://api.crossref.org/works"
 POLITE_MAILTO = "research-assistant@example.com" 
 
 
-async def fetch_crossref(query: str, limit: int = 50) -> list[PaperResult]:
+async def fetch_crossref(query: str, limit: int = 50, year_from: Optional[int] = None, year_to: Optional[int] = None) -> list[PaperResult]:
     """
     Fetches papers from CrossRef REST API.
     CrossRef is free, no auth required. Using polite pool via mailto param.
@@ -23,6 +24,12 @@ async def fetch_crossref(query: str, limit: int = 50) -> list[PaperResult]:
         "sort": "relevance",
         "order": "desc",
     }
+
+    # Add year filters
+    if year_from is not None:
+        params["from-pub-date"] = f"{year_from}"
+    if year_to is not None:
+        params["until-pub-date"] = f"{year_to}"
 
     papers: list[PaperResult] = []
 

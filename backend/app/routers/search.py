@@ -37,16 +37,18 @@ async def search_papers(request: SearchRequest):
     """
     query = request.query.strip()
     top_n = request.top_n
+    year_from = request.year_from
+    year_to = request.year_to
     summary = PipelineSummary()
 
     #  Step 1: Parallel fetch 
     fetch_limit = min(top_n * 4, 100)  # fetch more to compensate for filter losses
-    logger.info(f"[Phase1] Query='{query}' | fetch_limit={fetch_limit} | top_n={top_n}")
+    logger.info(f"[Phase1] Query='{query}' | fetch_limit={fetch_limit} | top_n={top_n} | years={year_from}-{year_to}")
 
     results = await asyncio.gather(
-        fetch_semantic_scholar(query, limit=fetch_limit),
-        fetch_arxiv(query, limit=fetch_limit),
-        fetch_crossref(query, limit=fetch_limit),
+        fetch_semantic_scholar(query, limit=fetch_limit, year_from=year_from, year_to=year_to),
+        fetch_arxiv(query, limit=fetch_limit, year_from=year_from, year_to=year_to),
+        fetch_crossref(query, limit=fetch_limit, year_from=year_from, year_to=year_to),
         return_exceptions=True,
     )
 

@@ -14,6 +14,8 @@ async def fetch_semantic_scholar(
     query: str,
     limit: int = 50,
     api_key: Optional[str] = None,
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
 ) -> list[PaperResult]:
     """
     Fetches papers from Semantic Scholar Graph API.
@@ -29,6 +31,12 @@ async def fetch_semantic_scholar(
         "limit": min(limit, 100),  # S2 max per request
         "fields": FIELDS,
     }
+
+    # Add year filters if provided
+    if year_from is not None:
+        params["publicationDateFrom"] = f"{year_from}-01-01"
+    if year_to is not None:
+        params["publicationDateTo"] = f"{year_to}-12-31"
 
     papers: list[PaperResult] = []
 

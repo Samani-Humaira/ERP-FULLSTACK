@@ -1,14 +1,15 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import DashboardLayout from './components/layout/DashboardLayout';
-import LoginPage from './pages/auth/LoginPage';
-import SignUpPage from './pages/auth/SignUpPage';
-import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
-import DashboardPage from './pages/DashboardPage';
-import ResearchInputPage from './pages/ResearchInputPage';
-import PapersPage from './pages/PapersPage';
-import GapAnalysisPage from './pages/GapAnalysisPage';
-import ProposalPage from './pages/ProposalPage';
-import ProfilePage from './pages/ProfilePage';
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import DashboardLayout from "./components/layout/DashboardLayout";
+import LoginPage from "./pages/auth/LoginPage";
+import SignUpPage from "./pages/auth/SignUpPage";
+import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import DashboardPage from "./pages/DashboardPage";
+import ResearchInputPage from "./pages/ResearchInputPage";
+import PapersPage from "./pages/PapersPage";
+import GapAnalysisPage from "./pages/GapAnalysisPage";
+import ProposalPage from "./pages/ProposalPage";
+import PaperPage from "./pages/PaperPage";
+import ProfilePage from "./pages/ProfilePage";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/papers" element={<PapersPage />} />
           <Route path="/gap-analysis" element={<GapAnalysisPage />} />
           <Route path="/proposal" element={<ProposalPage />} />
+          <Route path="/paper" element={<PaperPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>
 

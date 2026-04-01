@@ -1,27 +1,28 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   Lightbulb,
   AlertTriangle,
   Target,
   ClipboardPen,
-} from 'lucide-react';
-import Card, { CardBody, CardHeader } from '../components/ui/Card';
-import Button from '../components/ui/Button';
-import Badge from '../components/ui/Badge';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
+  FileCode,
+} from "lucide-react";
+import Card, { CardBody, CardHeader } from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import Badge from "../components/ui/Badge";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
 import {
   PageTransition,
   FadeIn,
   StaggerContainer,
   StaggerItem,
-} from '../components/ui/animations';
-import { logActivity } from '../api/activity';
+} from "../components/ui/animations";
+import { logActivity } from "../api/activity";
 
 const priorityVariant = {
-  High: 'danger',
-  Medium: 'warning',
-  Low: 'neutral',
+  High: "danger",
+  Medium: "warning",
+  Low: "neutral",
 };
 
 export default function GapAnalysisPage() {
@@ -36,12 +37,12 @@ export default function GapAnalysisPage() {
 
   const hasLogged = useRef(false);
 
-  const query = location.state?.query || '';
+  const query = location.state?.query || "";
   const papers = location.state?.papers || [];
 
   useEffect(() => {
     if (!papers.length || !query) {
-      setError('No papers found. Please go back and search first.');
+      setError("No papers found. Please go back and search first.");
       setLoading(false);
       return;
     }
@@ -51,15 +52,15 @@ export default function GapAnalysisPage() {
         setLoading(true);
         setError(null);
 
-        const res = await fetch('http://localhost:8000/api/v1/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const res = await fetch("http://localhost:8000/api/v1/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query, papers }),
         });
 
         if (!res.ok) {
           const errData = await res.json();
-          throw new Error(errData.detail || 'Analysis failed');
+          throw new Error(errData.detail || "Analysis failed");
         }
 
         const data = await res.json();
@@ -71,12 +72,11 @@ export default function GapAnalysisPage() {
         // Only log once even if useEffect fires twice (React Strict Mode)
         if (!hasLogged.current) {
           hasLogged.current = true;
-          await logActivity('gap_analysis', query);
+          await logActivity("gap_analysis", query);
         }
-
       } catch (err) {
         console.error(err);
-        setError(err.message || 'Something went wrong during gap analysis.');
+        setError(err.message || "Something went wrong during gap analysis.");
       } finally {
         setLoading(false);
       }
@@ -107,7 +107,6 @@ export default function GapAnalysisPage() {
   return (
     <PageTransition>
       <div className="max-w-4xl mx-auto space-y-6">
-
         {/* Header */}
         <FadeIn>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -119,12 +118,29 @@ export default function GapAnalysisPage() {
                 AI-identified gaps and opportunities from analyzed papers
               </p>
             </div>
-            <Button
-              icon={ClipboardPen}
-              onClick={() => navigate('/proposal')}
-            >
-              Generate Research Proposal
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                icon={ClipboardPen}
+                onClick={() =>
+                  navigate("/proposal", {
+                    state: { query, papers, themes, limitations, gaps },
+                  })
+                }
+              >
+                Generate Research Proposal
+              </Button>
+              <Button
+                variant="secondary"
+                icon={FileCode}
+                onClick={() =>
+                  navigate("/paper", {
+                    state: { query, papers, themes, limitations, gaps },
+                  })
+                }
+              >
+                Generate Full Research Paper
+              </Button>
+            </div>
           </div>
         </FadeIn>
 
@@ -143,12 +159,18 @@ export default function GapAnalysisPage() {
               <div className="flex flex-wrap gap-2">
                 {themes.length > 0 ? (
                   themes.map((theme, i) => (
-                    <Badge key={i} variant="primary" className="text-sm px-3 py-1">
+                    <Badge
+                      key={i}
+                      variant="primary"
+                      className="text-sm px-3 py-1"
+                    >
                       {theme.label}
                     </Badge>
                   ))
                 ) : (
-                  <p className="text-sm text-slate-400">No themes identified.</p>
+                  <p className="text-sm text-slate-400">
+                    No themes identified.
+                  </p>
                 )}
               </div>
             </CardBody>
@@ -183,7 +205,9 @@ export default function GapAnalysisPage() {
                     </StaggerItem>
                   ))
                 ) : (
-                  <p className="text-sm text-slate-400">No limitations extracted.</p>
+                  <p className="text-sm text-slate-400">
+                    No limitations extracted.
+                  </p>
                 )}
               </StaggerContainer>
             </CardBody>
@@ -231,7 +255,6 @@ export default function GapAnalysisPage() {
             </CardBody>
           </Card>
         </FadeIn>
-
       </div>
     </PageTransition>
   );

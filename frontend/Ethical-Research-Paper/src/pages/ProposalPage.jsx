@@ -1,31 +1,98 @@
-import { FileCode, Download, Save } from 'lucide-react';
-import Card, { CardBody, CardHeader } from '../components/ui/Card';
-import Button from '../components/ui/Button';
-import { PageTransition, FadeIn, StaggerContainer, StaggerItem } from '../components/ui/animations';
-
-const proposal = {
-  title:
-    'A Unified Framework for Cross-Domain Fairness Evaluation in Healthcare AI Systems',
-  problemStatement:
-    'Current fairness evaluation methods for AI in healthcare are fragmented across individual studies, each using different metrics, datasets, and definitions of fairness. This inconsistency makes it impossible to compare results across domains or establish reliable benchmarks. There is an urgent need for a standardized, cross-domain framework that enables systematic evaluation of fairness in AI-assisted clinical decision-making, addressing the gap between theoretical fairness definitions and practical clinical requirements.',
-  methodology: [
-    'Conduct a systematic literature review to catalog existing fairness metrics, evaluation criteria, and benchmark datasets used in healthcare AI research.',
-    'Develop a taxonomy of fairness definitions applicable to different clinical domains (diagnostics, treatment recommendation, resource allocation).',
-    'Design a modular evaluation framework that supports pluggable fairness metrics and domain-specific evaluation protocols.',
-    'Implement the framework as an open-source toolkit with standardized APIs for integration with existing ML pipelines.',
-    'Validate the framework through case studies across three clinical domains: radiology diagnosis, patient triage, and drug interaction prediction.',
-    'Conduct expert evaluation with clinicians and AI ethicists to assess the practical utility and coverage of the framework.',
-  ],
-  expectedContribution: [
-    'A comprehensive taxonomy mapping fairness definitions to clinical application domains.',
-    'An open-source, modular fairness evaluation framework for healthcare AI systems.',
-    'Standardized benchmark datasets and evaluation protocols for cross-domain fairness comparison.',
-    'Empirical evidence demonstrating the framework\'s effectiveness across multiple clinical use cases.',
-    'Guidelines for practitioners on selecting appropriate fairness metrics for specific healthcare applications.',
-  ],
-};
+import { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { FileCode, Download, Save } from "lucide-react";
+import Card, { CardBody, CardHeader } from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import {
+  PageTransition,
+  FadeIn,
+  StaggerContainer,
+  StaggerItem,
+} from "../components/ui/animations";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
 
 export default function ProposalPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const inputState = location.state || {};
+
+  const [proposal, setProposal] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const { query, papers, themes, limitations, gaps } = inputState;
+
+    if (!query || !papers?.length || !themes?.length || !gaps?.length) {
+      setError(
+        "Missing input from gap analysis. Please complete gap analysis first.",
+      );
+      setLoading(false);
+      return;
+    }
+
+    const fetchProposal = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(
+          "http://localhost:8000/api/v1/proposal/generate",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query,
+              papers,
+              themes: themes.map((t) => t.label || t),
+              limitations: limitations.map((l) => l.text || l),
+              gaps,
+            }),
+          },
+        );
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || "Proposal generation failed");
+        }
+
+        const data = await res.json();
+        setProposal(data);
+      } catch (err) {
+        setError(err.message || "Failed to generate proposal");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProposal();
+  }, [inputState]);
+
+  if (loading) {
+    return (
+      <PageTransition>
+        <LoadingSpinner text="Generating research proposal..." />
+      </PageTransition>
+    );
+  }
+
+  if (error) {
+    return (
+      <PageTransition>
+        <div className="max-w-3xl mx-auto text-center space-y-4 py-20">
+          <p className="text-red-500 font-medium">{error}</p>
+          <Button onClick={() => navigate("/gap-analysis")}>
+            Go Back to Gap Analysis
+          </Button>
+        </div>
+      </PageTransition>
+    );
+  }
+
+  if (!proposal) {
+    return null;
+  }
+
   return (
     <PageTransition>
       <div className="max-w-4xl mx-auto space-y-6">
@@ -54,7 +121,6 @@ export default function ProposalPage() {
           </div>
         </FadeIn>
 
-        {/* Proposed Title */}
         <FadeIn delay={0.1}>
           <Card>
             <CardHeader>
@@ -70,7 +136,6 @@ export default function ProposalPage() {
           </Card>
         </FadeIn>
 
-        {/* Problem Statement */}
         <FadeIn delay={0.15}>
           <Card>
             <CardHeader>
@@ -80,13 +145,12 @@ export default function ProposalPage() {
             </CardHeader>
             <CardBody>
               <p className="text-slate-700 leading-relaxed">
-                {proposal.problemStatement}
+                {proposal.problem_statement}
               </p>
             </CardBody>
           </Card>
         </FadeIn>
 
-        {/* Proposed Methodology */}
         <FadeIn delay={0.2}>
           <Card>
             <CardHeader>
@@ -102,7 +166,9 @@ export default function ProposalPage() {
                       <span className="flex items-center justify-center h-6 w-6 rounded-full bg-gradient-to-br from-primary-100 to-primary-200 text-primary-700 text-xs font-bold shrink-0 mt-0.5">
                         {i + 1}
                       </span>
-                      <p className="text-sm text-slate-700 leading-relaxed">{step}</p>
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {step}
+                      </p>
                     </li>
                   </StaggerItem>
                 ))}
@@ -111,7 +177,6 @@ export default function ProposalPage() {
           </Card>
         </FadeIn>
 
-        {/* Expected Contribution */}
         <FadeIn delay={0.25}>
           <Card>
             <CardHeader>
@@ -121,11 +186,13 @@ export default function ProposalPage() {
             </CardHeader>
             <CardBody>
               <StaggerContainer className="space-y-3">
-                {proposal.expectedContribution.map((item, i) => (
+                {proposal.expected_contributions.map((item, i) => (
                   <StaggerItem key={i}>
                     <li className="flex items-start gap-3 list-none">
                       <span className="h-1.5 w-1.5 rounded-full bg-primary-500 mt-2 shrink-0" />
-                      <p className="text-sm text-slate-700 leading-relaxed">{item}</p>
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {item}
+                      </p>
                     </li>
                   </StaggerItem>
                 ))}
@@ -134,7 +201,6 @@ export default function ProposalPage() {
           </Card>
         </FadeIn>
 
-        {/* Bottom Actions */}
         <FadeIn delay={0.3}>
           <div className="flex flex-wrap gap-3 pt-2">
             <Button variant="secondary" icon={FileCode}>

@@ -17,6 +17,7 @@ Deduplication:
 
 import math
 import re
+from typing import Optional
 from app.schemas import PaperResult
 
 CURRENT_YEAR = 2026
@@ -32,7 +33,7 @@ def _tokenise(text: str) -> set[str]:
     return set(re.sub(r"[^\w\s]", "", text.lower()).split())
 
 
-def _keyword_score(query_tokens: set[str], title: str, abstract: str | None) -> float:
+def _keyword_score(query_tokens: set[str], title: str, abstract: Optional[str]) -> float:
     """Fraction of query tokens found in title + abstract combined."""
     if not query_tokens:
         return 0.0
@@ -50,14 +51,14 @@ def _title_score(query_tokens: set[str], title: str) -> float:
     return len(matched) / len(query_tokens)
 
 
-def _citation_score(citation_count: int | None) -> float:
+def _citation_score(citation_count: Optional[int]) -> float:
     """Log-normalised citation score capped at 1.0."""
     if not citation_count or citation_count <= 0:
         return 0.0
     return min(math.log1p(citation_count) / math.log1p(CITATION_SCALE), 1.0)
 
 
-def _recency_score(year: int | None) -> float:
+def _recency_score(year: Optional[int]) -> float:
     """Papers within RECENCY_WINDOW years get score proportional to freshness."""
     if year is None:
         return 0.0

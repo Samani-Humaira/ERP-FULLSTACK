@@ -16,6 +16,7 @@ import asyncio
 import httpx
 import re
 import logging
+from typing import Optional
 from app.schemas import PaperResult, SearchSource
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ MAX_CONCURRENT = 5
 
 #  Helpers 
 
-def _extract_arxiv_id(url: str) -> str | None:
+def _extract_arxiv_id(url: str) -> Optional[str]:
     """Pull arXiv ID from a URL like https://arxiv.org/abs/2301.00001v2"""
     if not url:
         return None
@@ -37,7 +38,7 @@ def _extract_arxiv_id(url: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _is_valid_abstract(abstract: str | None) -> bool:
+def _is_valid_abstract(abstract: Optional[str]) -> bool:
     """Abstract must exist and be at least 50 chars to be useful for NLP."""
     return bool(abstract and len(abstract.strip()) >= 50)
 
@@ -47,7 +48,7 @@ def _is_valid_abstract(abstract: str | None) -> bool:
 async def _enrich_via_s2(
     paper: PaperResult,
     client: httpx.AsyncClient,
-    api_key: str | None = None,
+    api_key: Optional[str] = None,
 ) -> PaperResult:
     """
     Try to fetch full paper details from S2 using DOI or arXiv ID.
@@ -154,7 +155,7 @@ async def _enrich_via_arxiv_api(
 
 async def enrich_papers(
     papers: list[PaperResult],
-    api_key: str | None = None,
+    api_key: Optional[str] = None,
 ) -> list[PaperResult]:
     """
     Enrich papers that are missing abstracts.

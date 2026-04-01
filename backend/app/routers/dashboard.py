@@ -59,7 +59,7 @@ def get_dashboard(
 
     stats = DashboardStats(
         total_searches=count_type(ActivityType.SEARCH),
-        gaps_identified=count_type(ActivityType.GAP),
+        gaps_identified=count_type(ActivityType.GAP_ANALYSIS),
         proposals_generated=count_type(ActivityType.PROPOSAL),
     )
 

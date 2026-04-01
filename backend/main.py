@@ -11,6 +11,9 @@ from app.routers import search
 from app.routers import gap_analysis
 from app.routers import dashboard
 from app.routers import auth
+from app.routers import proposal
+from app.routers import paper
+from app.routers import auto_generate
 
 # Create all DB tables on startup
 Base.metadata.create_all(bind=engine)
@@ -37,6 +40,15 @@ app.include_router(search.router, prefix="/api/v1", tags=["Phase 1 — Literatur
 
 # Phase 2 — Gap analysis
 app.include_router(gap_analysis.router, prefix="/api/v1", tags=["Phase 2 — Gap Analysis"])
+
+# Phase 3 — Proposal generation
+app.include_router(proposal.router, prefix="/api/v1/proposal", tags=["Phase 3 — Proposal Generation"])
+
+# Phase 4 — Full paper generation
+app.include_router(paper.router, prefix="/api/v1/paper", tags=["Phase 4 — Full Paper Generation"])
+
+# Auto-Generate (Complete Workflow)
+app.include_router(auto_generate.router, prefix="/api/v1", tags=["Auto-Generate Research Paper"])
 
 app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 

@@ -33,37 +33,37 @@ def generate_paper(request: PaperRequest) -> PaperResponse:
 
     # Introduction
     sections.append(PaperSection(
-        title="1. Introduction",
+        title="I. INTRODUCTION",
         content=_generate_introduction(query, themes, gaps)
     ))
 
     # Literature Review
     sections.append(PaperSection(
-        title="2. Literature Review",
+        title="II. LITERATURE REVIEW",
         content=_generate_literature_review(themes, limitations, papers)
     ))
 
     # Methodology
     sections.append(PaperSection(
-        title="3. Methodology",
+        title="III. METHODOLOGY",
         content=_generate_methodology_section(themes, gaps)
     ))
 
-    # Results/Analysis
+    # Analysis and Findings
     sections.append(PaperSection(
-        title="4. Analysis and Findings",
+        title="IV. ANALYSIS AND FINDINGS",
         content=_generate_analysis_section(gaps, limitations)
     ))
 
     # Discussion
     sections.append(PaperSection(
-        title="5. Discussion",
+        title="V. DISCUSSION",
         content=_generate_discussion_section(gaps, themes)
     ))
 
     # Conclusion
     sections.append(PaperSection(
-        title="6. Conclusion",
+        title="VI. CONCLUSION",
         content=_generate_conclusion(query, gaps)
     ))
 
@@ -93,17 +93,18 @@ def _generate_abstract(query: str, themes: List[str], gaps: List[Dict[str, Any]]
     """Generate paper abstract."""
     theme_text = ", ".join(themes[:2]) if themes else "emerging research areas"
 
-    abstract = f"This paper presents a comprehensive analysis of {query.lower()} within the context of {theme_text}. "
+    abstract = f"This paper presents a comprehensive analysis of {query.lower()} within the context of {theme_text}.\\n\\n"
 
     if gaps:
         top_gap = gaps[0]
         gap_desc = top_gap.get('description', '')[:100]
-        abstract += f"The study addresses the critical gap: {gap_desc}... "
+        abstract += f"The study addresses the critical gap: {gap_desc}...\\n\\n"
 
-    abstract += f"Through systematic literature review and analysis of recent publications, " \
-                f"this research identifies key challenges, proposes novel approaches, and provides " \
-                f"insights for future research directions. The findings contribute to the advancement " \
-                f"of knowledge in {theme_text} and offer practical implications for researchers and practitioners."
+    abstract += f"Through systematic literature review and analysis of recent publications,\\n"
+    abstract += f"this research identifies key challenges, proposes novel approaches, and provides\\n"
+    abstract += f"insights for future research directions.\\n\\n"
+    abstract += f"The findings contribute to the advancement of knowledge in {theme_text}\\n"
+    abstract += f"and offer practical implications for researchers and practitioners."
 
     return abstract
 

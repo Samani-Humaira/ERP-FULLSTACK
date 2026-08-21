@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from "framer-motion";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Search,
@@ -10,15 +10,15 @@ import {
   LogOut,
   GraduationCap,
   X,
-} from 'lucide-react';
+} from "lucide-react";
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/research', label: 'Start Research', icon: Search },
-  { to: '/papers', label: 'Papers', icon: FileText },
-  { to: '/gap-analysis', label: 'Gap Analysis', icon: GitCompareArrows },
-  { to: '/proposal', label: 'Proposal', icon: ClipboardPen },
-  { to: '/profile', label: 'Profile', icon: UserCircle },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/research", label: "Start Research", icon: Search },
+  { to: "/papers", label: "Papers", icon: FileText },
+  { to: "/gap-analysis", label: "Gap Analysis", icon: GitCompareArrows },
+  { to: "/proposal", label: "Proposal", icon: ClipboardPen },
+  { to: "/profile", label: "Profile", icon: UserCircle },
 ];
 
 export default function Sidebar({ open, onClose }) {
@@ -26,7 +26,7 @@ export default function Sidebar({ open, onClose }) {
   const location = useLocation();
 
   const handleLogout = () => {
-    navigate('/login');
+    navigate("/login");
   };
 
   return (
@@ -50,7 +50,7 @@ export default function Sidebar({ open, onClose }) {
           fixed inset-y-0 left-0 z-50 w-64 bg-white/90 backdrop-blur-xl border-r border-slate-200/80
           flex flex-col
           transform lg:translate-x-0 lg:static lg:z-auto
-          ${open ? 'translate-x-0' : '-translate-x-full'}
+          ${open ? "translate-x-0" : "-translate-x-full"}
         `}
       >
         {/* Logo */}
@@ -65,9 +65,9 @@ export default function Sidebar({ open, onClose }) {
           </NavLink>
           <button
             onClick={onClose}
-            className="lg:hidden p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+            className="lg:hidden p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
           >
-            <X className="h-5 w-5 text-slate-500" />
+            <X className="h-5 w-5 text-slate-500 dark:text-slate-300" />
           </button>
         </div>
 
@@ -82,15 +82,15 @@ export default function Sidebar({ open, onClose }) {
                 onClick={onClose}
                 className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
                   isActive
-                    ? 'text-primary-700'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    ? "text-primary-700"
+                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId="sidebar-active"
-                    className="absolute inset-0 bg-primary-50 rounded-lg"
-                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                    className="absolute inset-0 bg-primary-50 dark:bg-primary-900/20 rounded-lg"
+                    transition={{ type: "spring", stiffness: 350, damping: 30 }}
                   />
                 )}
                 <Icon className="h-4.5 w-4.5 shrink-0 relative z-10" />

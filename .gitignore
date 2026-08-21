@@ -25,9 +25,14 @@ models/
 sentence_transformers/
 ~/.cache/huggingface/
 
-# ─── Logs ─────────────────────────────────────────────────────────────────────
+# ─── Logs & Dev Artifacts ──────────────────────────────────────────────────
 *.log
 logs/
+email_logs/
+*.eml
+invite_links.txt
+backend/invite_links.txt
+backend/app/email_logs/
 
 # ─── IDE ──────────────────────────────────────────────────────────────────────
 .vscode/

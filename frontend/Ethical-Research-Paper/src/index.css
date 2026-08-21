@@ -21,6 +21,8 @@ html {
 body {
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   color: #1e293b;
+  background: #f8fafc;
+  transition: background-color 150ms ease, color 150ms ease;
 }
 
 /* Smooth transitions (exclude framer-motion managed transforms) */

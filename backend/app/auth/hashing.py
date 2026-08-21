@@ -1,25 +1,25 @@
-from passlib.context import CryptContext
+import bcrypt
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 BCRYPT_MAX_BYTES = 72
 
 
-def _truncate_password(password: str) -> str:
+def _truncate_password(password: str) -> bytes:
     if not isinstance(password, str):
-        raise ValueError("Password must be a string")
+        raise ValueError('Password must be a string')
 
-    encoded = password.encode("utf-8")
-    if len(encoded) > BCRYPT_MAX_BYTES:
-        # bcrypt truncates after 72 bytes; do the same explicitly to avoid backend verify issues
-        return encoded[:BCRYPT_MAX_BYTES].decode("utf-8", errors="ignore")
-    return password
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > BCRYPT_MAX_BYTES:
+        # bcrypt only supports up to 72 bytes; truncate explicitly to avoid backend errors.
+        password_bytes = password_bytes[:BCRYPT_MAX_BYTES]
+    return password_bytes
 
 
 def hash_password(plain_password: str) -> str:
     safe_password = _truncate_password(plain_password)
-    return pwd_context.hash(safe_password)
+    hashed = bcrypt.hashpw(safe_password, bcrypt.gensalt())
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     safe_password = _truncate_password(plain_password)
-    return pwd_context.verify(safe_password, hashed_password)
+    return bcrypt.checkpw(safe_password, hashed_password.encode('utf-8'))

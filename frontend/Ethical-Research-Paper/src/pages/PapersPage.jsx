@@ -1,24 +1,24 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
   GitCompareArrows,
-} from 'lucide-react';
+} from "lucide-react";
 
-import Card, { CardBody } from '../components/ui/Card';
-import Button from '../components/ui/Button';
-import Badge from '../components/ui/Badge';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { logActivity } from '../api/activity';
+import Card, { CardBody } from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import Badge from "../components/ui/Badge";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
+import { logActivity } from "../api/activity";
 
 import {
   PageTransition,
   FadeIn,
   StaggerContainer,
   StaggerItem,
-} from '../components/ui/animations';
+} from "../components/ui/animations";
 
 export default function PapersPage() {
   const navigate = useNavigate();
@@ -28,8 +28,7 @@ export default function PapersPage() {
   const [expandedId, setExpandedId] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const query =
-    new URLSearchParams(location.search).get('query') || '';
+  const query = new URLSearchParams(location.search).get("query") || "";
 
   useEffect(() => {
     if (!query) return;
@@ -40,18 +39,17 @@ export default function PapersPage() {
 
         const res = await fetch(
           `http://localhost:8000/api/v1/search?query=${encodeURIComponent(
-            query
-          )}&top_n=10`
+            query,
+          )}&top_n=10`,
         );
 
         const data = await res.json();
         setPapers(data.papers || []);
-        
-         // Log ONCE after papers are set — not during enrichment/fetching
-        if (data.papers?.length > 0) {
-          await logActivity('search', query);
-        }
 
+        // Log ONCE after papers are set — not during enrichment/fetching
+        if (data.papers?.length > 0) {
+          await logActivity("search", query);
+        }
       } catch (err) {
         console.error(err);
       } finally {
@@ -64,7 +62,7 @@ export default function PapersPage() {
 
   // Navigate to gap analysis — pass query + papers via location state
   const handleAnalyzeGap = () => {
-    navigate('/gap-analysis', {
+    navigate("/gap-analysis", {
       state: {
         query,
         papers,
@@ -83,17 +81,12 @@ export default function PapersPage() {
   return (
     <PageTransition>
       <div className="max-w-4xl mx-auto space-y-6">
-
         {/* Header */}
         <FadeIn>
           <div className="flex justify-between">
             <div>
-              <h1 className="text-2xl font-bold">
-                Retrieved Papers
-              </h1>
-              <p className="text-slate-500">
-                {papers.length} papers found
-              </p>
+              <h1 className="text-2xl font-bold">Retrieved Papers</h1>
+              <p className="text-slate-500">{papers.length} papers found</p>
             </div>
 
             <Button
@@ -109,7 +102,6 @@ export default function PapersPage() {
         {/* Papers */}
         <StaggerContainer className="space-y-4">
           {papers.map((paper, index) => {
-
             const isExpanded = expandedId === index;
 
             return (
@@ -117,32 +109,27 @@ export default function PapersPage() {
                 <Card>
                   <CardBody className="p-5">
                     <div className="space-y-3">
-
                       {/* Title + Year */}
                       <div className="flex justify-between">
-                        <h3 className="font-semibold">
-                          {paper.title}
-                        </h3>
-                        <Badge>
-                          {paper.year}
-                        </Badge>
+                        <h3 className="font-semibold">{paper.title}</h3>
+                        <Badge>{paper.year}</Badge>
                       </div>
 
                       {/* Authors */}
                       <p className="text-sm text-slate-500">
-                        {paper.authors?.join(', ')}
+                        {paper.authors?.join(", ")}
                       </p>
 
                       {/* Source */}
-                      <Badge variant="primary">
-                        {paper.source}
-                      </Badge>
+                      <Badge variant="primary">{paper.source}</Badge>
 
                       {/* Abstract */}
-                      <p className="text-sm">
+                      <p className="text-sm whitespace-pre-wrap">
                         {isExpanded
-                          ? paper.abstract
-                          : paper.abstract?.slice(0, 150) + '...'}
+                          ? paper.abstract?.replace(/\\n/g, "\n")
+                          : paper.abstract
+                              ?.replace(/\\n/g, "\n")
+                              .slice(0, 150) + "..."}
                       </p>
 
                       {/* Buttons */}
@@ -155,7 +142,7 @@ export default function PapersPage() {
                           }
                           icon={isExpanded ? ChevronUp : ChevronDown}
                         >
-                          {isExpanded ? 'Show Less' : 'View Details'}
+                          {isExpanded ? "Show Less" : "View Details"}
                         </Button>
 
                         {paper.url && (
@@ -163,15 +150,12 @@ export default function PapersPage() {
                             size="sm"
                             variant="ghost"
                             icon={ExternalLink}
-                            onClick={() =>
-                              window.open(paper.url, '_blank')
-                            }
+                            onClick={() => window.open(paper.url, "_blank")}
                           >
                             Open Paper
                           </Button>
                         )}
                       </div>
-
                     </div>
                   </CardBody>
                 </Card>
@@ -179,7 +163,6 @@ export default function PapersPage() {
             );
           })}
         </StaggerContainer>
-
       </div>
     </PageTransition>
   );

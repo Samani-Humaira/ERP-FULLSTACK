@@ -1,26 +1,28 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock } from 'lucide-react';
-import AuthLayout from '../../components/layout/AuthLayout';
-import Input from '../../components/ui/Input';
-import Button from '../../components/ui/Button';
-import Card, { CardBody } from '../../components/ui/Card';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Mail, Lock } from "lucide-react";
+import AuthLayout from "../../components/layout/AuthLayout";
+import Input from "../../components/ui/Input";
+import Button from "../../components/ui/Button";
+import Card, { CardBody } from "../../components/ui/Card";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const params = new URLSearchParams(window.location.search);
+  const next = params.get("next") || "/dashboard";
   const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState('');
-  const [form, setForm] = useState({ email: '', password: '' });
+  const [apiError, setApiError] = useState("");
+  const [form, setForm] = useState({ email: "", password: "" });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setApiError('');
+    setApiError("");
     setLoading(true);
 
     try {
-      const res = await fetch('http://localhost:8000/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("http://localhost:8000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: form.email,
           password: form.password,
@@ -30,15 +32,15 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setApiError(data.detail || 'Login failed. Please try again.');
+        setApiError(data.detail || "Login failed. Please try again.");
         return;
       }
 
       // Save token and user info to localStorage
-      localStorage.setItem('token', data.access_token);
+      localStorage.setItem("token", data.access_token);
 
       // Fetch current user details and save them too
-      const userRes = await fetch('http://localhost:8000/api/v1/auth/me', {
+      const userRes = await fetch("http://localhost:8000/api/v1/auth/me", {
         headers: {
           Authorization: `Bearer ${data.access_token}`,
         },
@@ -46,13 +48,14 @@ export default function LoginPage() {
 
       if (userRes.ok) {
         const user = await userRes.json();
-        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem("user", JSON.stringify(user));
       }
 
-      navigate('/dashboard');
-
+      navigate(next);
     } catch (err) {
-      setApiError('Cannot connect to server. Make sure the backend is running.');
+      setApiError(
+        "Cannot connect to server. Make sure the backend is running.",
+      );
     } finally {
       setLoading(false);
     }
@@ -106,13 +109,18 @@ export default function LoginPage() {
               </Link>
             </div>
 
-            <Button type="submit" loading={loading} className="w-full" size="lg">
+            <Button
+              type="submit"
+              loading={loading}
+              className="w-full"
+              size="lg"
+            >
               Login
             </Button>
           </form>
 
           <p className="text-center text-sm text-slate-500 mt-6">
-            Don&apos;t have an account?{' '}
+            Don&apos;t have an account?{" "}
             <Link
               to="/signup"
               className="text-primary-600 hover:text-primary-700 font-medium"

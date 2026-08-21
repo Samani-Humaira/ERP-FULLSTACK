@@ -13,7 +13,11 @@ from app.routers import dashboard
 from app.routers import auth
 from app.routers import proposal
 from app.routers import paper
+from app.routers import plagiarism
+from app.routers import project as project_router
 from app.routers import auto_generate
+from app.routers import collaboration
+from app.routers import collaboration_ws
 
 # Create all DB tables on startup
 Base.metadata.create_all(bind=engine)
@@ -46,6 +50,18 @@ app.include_router(proposal.router, prefix="/api/v1/proposal", tags=["Phase 3 �
 
 # Phase 4 — Full paper generation
 app.include_router(paper.router, prefix="/api/v1/paper", tags=["Phase 4 — Full Paper Generation"])
+
+# Plagiarism / similarity checking
+app.include_router(plagiarism.router, prefix="/api/v1/plagiarism", tags=["Plagiarism"])
+
+# Project save/load/management
+app.include_router(project_router.router, prefix="/api/v1", tags=["Projects"])
+
+# Collaboration REST
+app.include_router(collaboration.router, prefix="/api/v1", tags=["Collaboration"])
+
+# Collaboration WebSocket (real-time editing/presence)
+app.include_router(collaboration_ws.router, prefix="/api/v1", tags=["Collaboration WS"])
 
 # Auto-Generate (Complete Workflow)
 app.include_router(auto_generate.router, prefix="/api/v1", tags=["Auto-Generate Research Paper"])

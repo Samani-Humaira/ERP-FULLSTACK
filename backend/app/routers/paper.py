@@ -53,3 +53,6 @@ async def generate_research_paper(request: PaperRequest) -> PaperResponse:
             status_code=500,
             detail=f"Paper generation failed: {str(e)}"
         )
+
+
+

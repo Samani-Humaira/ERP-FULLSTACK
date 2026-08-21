@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Search,
   FolderOpen,
@@ -7,39 +7,39 @@ import {
   GitCompareArrows,
   ClipboardPen,
   ArrowRight,
-} from 'lucide-react';
-import Card, { CardBody } from '../components/ui/Card';
-import Button from '../components/ui/Button';
+} from "lucide-react";
+import Card, { CardBody } from "../components/ui/Card";
+import Button from "../components/ui/Button";
 import {
   PageTransition,
   FadeIn,
   StaggerContainer,
   StaggerItem,
   AnimatedCounter,
-} from '../components/ui/animations';
-import { getDashboard } from '../api/activity';
+} from "../components/ui/animations";
+import { getDashboard } from "../api/activity";
 
 // Map activity type from API to icon + label
 const ACTIVITY_META = {
-  search:       { icon: Search,      label: 'Research Search' },
-  gap_analysis: { icon: BarChart3,   label: 'Gap Analysis'    },
-  proposal:     { icon: ClipboardPen, label: 'Proposal'       },
+  search: { icon: Search, label: "Research Search" },
+  gap_analysis: { icon: BarChart3, label: "Gap Analysis" },
+  proposal: { icon: ClipboardPen, label: "Proposal" },
 };
 
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
-  const mins  = Math.floor(diff / 60000);
+  const mins = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
-  const days  = Math.floor(diff / 86400000);
-  if (mins < 1)   return 'Just now';
-  if (mins < 60)  return `${mins} minute${mins > 1 ? 's' : ''} ago`;
-  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-  return `${days} day${days > 1 ? 's' : ''} ago`;
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} minute${mins > 1 ? "s" : ""} ago`;
+  if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+  return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
 export default function DashboardPage() {
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  const firstName = user?.full_name?.split(' ')[0] || 'Researcher';
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const firstName = user?.full_name?.split(" ")[0] || "Researcher";
 
   const [stats, setStats] = useState({
     total_searches: 0,
@@ -56,7 +56,7 @@ export default function DashboardPage() {
         setStats(data.stats);
         setRecentActivity(data.recent_activity);
       } catch (err) {
-        console.error('Dashboard fetch failed:', err);
+        console.error("Dashboard fetch failed:", err);
       } finally {
         setLoading(false);
       }
@@ -67,29 +67,28 @@ export default function DashboardPage() {
 
   const statCards = [
     {
-      label: 'Total Searches',
+      label: "Total Searches",
       value: stats.total_searches,
       icon: Search,
-      color: 'bg-primary-100 text-primary-600',
+      color: "bg-primary-100 text-primary-600",
     },
     {
-      label: 'Gaps Identified',
+      label: "Gaps Identified",
       value: stats.gaps_identified,
       icon: GitCompareArrows,
-      color: 'bg-amber-100 text-amber-600',
+      color: "bg-amber-100 text-amber-600",
     },
     {
-      label: 'Proposals Generated',
+      label: "Proposals Generated",
       value: stats.proposals_generated,
       icon: ClipboardPen,
-      color: 'bg-emerald-100 text-emerald-600',
+      color: "bg-emerald-100 text-emerald-600",
     },
   ];
 
   return (
     <PageTransition>
       <div className="max-w-6xl mx-auto space-y-6">
-
         {/* Welcome */}
         <FadeIn>
           <h1 className="text-2xl font-bold text-slate-800">
@@ -110,8 +109,12 @@ export default function DashboardPage() {
                     <Search className="h-6 w-6 text-primary-600" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-slate-800">Start New Research</h3>
-                    <p className="text-sm text-slate-500">Search papers and explore topics</p>
+                    <h3 className="font-semibold text-slate-800">
+                      Start New Research
+                    </h3>
+                    <p className="text-sm text-slate-500">
+                      Search papers and explore topics
+                    </p>
                   </div>
                   <ArrowRight className="h-5 w-5 text-slate-400" />
                 </CardBody>
@@ -120,15 +123,19 @@ export default function DashboardPage() {
           </StaggerItem>
 
           <StaggerItem>
-            <Link to="/papers">
+            <Link to="/projects">
               <Card hover className="h-full">
                 <CardBody className="flex items-center gap-4">
                   <div className="p-3 bg-gradient-to-br from-violet-100 to-violet-200/50 rounded-xl">
                     <FolderOpen className="h-6 w-6 text-violet-600" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-slate-800">View Previous Projects</h3>
-                    <p className="text-sm text-slate-500">Browse your saved papers and results</p>
+                    <h3 className="font-semibold text-slate-800">
+                      View Previous Projects
+                    </h3>
+                    <p className="text-sm text-slate-500">
+                      Browse your saved papers and results
+                    </p>
                   </div>
                   <ArrowRight className="h-5 w-5 text-slate-400" />
                 </CardBody>
@@ -139,8 +146,13 @@ export default function DashboardPage() {
 
         {/* Stats */}
         <FadeIn delay={0.2}>
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Your Activity</h2>
-          <StaggerContainer className="grid grid-cols-1 sm:grid-cols-3 gap-4" staggerDelay={0.1}>
+          <h2 className="text-lg font-semibold text-slate-800 mb-4">
+            Your Activity
+          </h2>
+          <StaggerContainer
+            className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+            staggerDelay={0.1}
+          >
             {statCards.map(({ label, value, icon: Icon, color }) => (
               <StaggerItem key={label}>
                 <Card>
@@ -150,7 +162,7 @@ export default function DashboardPage() {
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-slate-800">
-                        {loading ? '—' : <AnimatedCounter target={value} />}
+                        {loading ? "—" : <AnimatedCounter target={value} />}
                       </p>
                       <p className="text-sm text-slate-500">{label}</p>
                     </div>
@@ -166,12 +178,16 @@ export default function DashboardPage() {
           <Card>
             <CardBody>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-slate-800">Recent Activity</h2>
+                <h2 className="text-lg font-semibold text-slate-800">
+                  Recent Activity
+                </h2>
                 {/* <Button variant="ghost" size="sm">View All</Button> */}
               </div>
 
               {loading ? (
-                <p className="text-sm text-slate-400 text-center py-4">Loading...</p>
+                <p className="text-sm text-slate-400 text-center py-4">
+                  Loading...
+                </p>
               ) : recentActivity.length === 0 ? (
                 <p className="text-sm text-slate-400 text-center py-4">
                   No activity yet. Start by searching a research topic!
@@ -194,7 +210,9 @@ export default function DashboardPage() {
                             <p className="text-sm font-medium text-slate-700 truncate">
                               {item.title}
                             </p>
-                            <p className="text-xs text-slate-400">{meta.label}</p>
+                            <p className="text-xs text-slate-400">
+                              {meta.label}
+                            </p>
                           </div>
                           <span className="text-xs text-slate-400 shrink-0">
                             {timeAgo(item.created_at)}
@@ -208,7 +226,6 @@ export default function DashboardPage() {
             </CardBody>
           </Card>
         </FadeIn>
-
       </div>
     </PageTransition>
   );

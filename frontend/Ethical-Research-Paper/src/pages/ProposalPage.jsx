@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FileCode, Download, Save } from "lucide-react";
+import { FileCode, FileText, Download, Save } from "lucide-react";
+import jsPDF from "jspdf";
 import Card, { CardBody, CardHeader } from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import {
@@ -17,8 +18,24 @@ export default function ProposalPage() {
   const inputState = location.state || {};
 
   const [proposal, setProposal] = useState(null);
+  const [editableProposal, setEditableProposal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [statusMessage, setStatusMessage] = useState(
+    "Preparing proposal flow...",
+  );
+  const [progressStep, setProgressStep] = useState(1);
+  const [plagiarismResult, setPlagiarismResult] = useState(null);
+  const [plagiarismLoading, setPlagiarismLoading] = useState(false);
+  const [plagiarismError, setPlagiarismError] = useState(null);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saveSuccess, setSaveSuccess] = useState(null);
+  const [projectTitle, setProjectTitle] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+  const activeProposal = editableProposal || proposal;
 
   useEffect(() => {
     const { query, papers, themes, limitations, gaps } = inputState;
@@ -35,6 +52,8 @@ export default function ProposalPage() {
       try {
         setLoading(true);
         setError(null);
+        setStatusMessage("Validating gap analysis inputs...");
+        setProgressStep(1);
 
         const res = await fetch(
           "http://localhost:8000/api/v1/proposal/generate",
@@ -56,10 +75,17 @@ export default function ProposalPage() {
           throw new Error(errData.detail || "Proposal generation failed");
         }
 
+        setStatusMessage("Generating research proposal...");
+        setProgressStep(2);
+
         const data = await res.json();
         setProposal(data);
+        setEditableProposal(data);
+        setStatusMessage("Proposal ready. Edit content and export or save.");
+        setProgressStep(3);
       } catch (err) {
         setError(err.message || "Failed to generate proposal");
+        setStatusMessage("Proposal generation failed.");
       } finally {
         setLoading(false);
       }
@@ -93,6 +119,258 @@ export default function ProposalPage() {
     return null;
   }
 
+  const downloadPDF = () => {
+    const activeProposal = editableProposal || proposal;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
+    let yPosition = margin;
+    const getLineHeight = (fontSize) => Math.round(fontSize * 1.4);
+
+    const addText = (text, fontSize = 12, indent = 0) => {
+      doc.setFontSize(fontSize);
+      doc.setFont("helvetica", "normal");
+      const lines = doc.splitTextToSize(text || "", maxWidth - indent);
+      const x = margin + indent;
+      const totalHeight = lines.length * getLineHeight(fontSize);
+
+      if (yPosition + totalHeight > pageHeight - margin) {
+        doc.addPage();
+        yPosition = margin;
+      }
+      doc.text(lines, x, yPosition, { baseline: "top" });
+      yPosition += totalHeight + 8;
+    };
+
+    const addSectionTitle = (title) => {
+      const fontSize = 14;
+      const titleHeight = getLineHeight(fontSize) + 8;
+      if (yPosition + titleHeight > pageHeight - margin) {
+        doc.addPage();
+        yPosition = margin;
+      }
+      doc.setFontSize(fontSize);
+      doc.setFont("helvetica", "bold");
+      doc.text(title, margin, yPosition, { baseline: "top" });
+      yPosition += titleHeight;
+    };
+
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.text(activeProposal.title, margin, yPosition);
+    yPosition += getLineHeight(20) + 12;
+
+    addSectionTitle("Background");
+    addText(activeProposal.background);
+
+    addSectionTitle("Problem Statement");
+    addText(activeProposal.problem_statement);
+
+    addSectionTitle("Proposed Methodology");
+    activeProposal.methodology.forEach((step, index) => {
+      addText(`${index + 1}. ${step}`, 12, 10);
+    });
+
+    addSectionTitle("Expected Contributions");
+    activeProposal.expected_contributions.forEach((item) => {
+      addText(`• ${item}`, 12, 10);
+    });
+
+    addSectionTitle("Timeline");
+    addText(activeProposal.timeline);
+
+    addSectionTitle("Resources");
+    activeProposal.resources.forEach((resource) => {
+      addText(`• ${resource}`, 12, 10);
+    });
+
+    doc.save(
+      `${activeProposal.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_proposal.pdf`,
+    );
+  };
+
+  const checkPlagiarism = async () => {
+    if (!inputState.papers?.length) {
+      setPlagiarismError(
+        "No reference papers available for similarity checking.",
+      );
+      return;
+    }
+
+    setPlagiarismLoading(true);
+    setPlagiarismError(null);
+    setPlagiarismResult(null);
+
+    try {
+      const activeProposal = editableProposal || proposal;
+      const sourceText = [
+        activeProposal.title,
+        activeProposal.problem_statement,
+        activeProposal.methodology.join("\n"),
+        activeProposal.expected_contributions.join("\n"),
+      ].join("\n\n");
+
+      const response = await fetch(
+        "http://localhost:8000/api/v1/plagiarism/check",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source_text: sourceText,
+            papers: inputState.papers,
+            threshold: 0.25,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Similarity check failed.");
+      }
+
+      const result = await response.json();
+      setPlagiarismResult(result);
+    } catch (err) {
+      setPlagiarismError(err.message || "Failed to run similarity check.");
+    } finally {
+      setPlagiarismLoading(false);
+    }
+  };
+
+  const updateProposalField = (field, value) => {
+    setEditableProposal((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateProposalLines = (field, raw) => {
+    setEditableProposal((prev) => ({
+      ...prev,
+      [field]: raw
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    }));
+  };
+
+  const handleSaveProject = async () => {
+    if (!projectTitle.trim()) {
+      setSaveError("Please enter a project title.");
+      return;
+    }
+
+    setSaveLoading(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setSaveError("Not authenticated. Please login first.");
+        setSaveLoading(false);
+        return;
+      }
+
+      const response = await fetch("http://localhost:8000/api/v1/save", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: projectTitle,
+          description: projectDescription,
+          project_type: "proposal",
+          query: inputState.query,
+          content: activeProposal,
+          papers_data: inputState.papers,
+          gaps_data: inputState.gaps,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Failed to save project.");
+      }
+
+      const result = await response.json();
+      setSaveSuccess(`Project "${result.title}" saved successfully!`);
+      setProjectTitle("");
+      setProjectDescription("");
+      setShowSaveDialog(false);
+
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (err) {
+      setSaveError(err.message || "Failed to save project.");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const downloadFile = (filename, content, mimeType) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.style.display = "none";
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
+
+  const exportLaTeX = () => {
+    const activeProposal = editableProposal || proposal;
+    const escape = (text) =>
+      String(text)
+        .replace(/\\/g, "\\\\")
+        .replace(/%/g, "\\%")
+        .replace(/\$/g, "\\$")
+        .replace(/#/g, "\\#")
+        .replace(/_/g, "\\_")
+        .replace(/\{/g, "\\{")
+        .replace(/\}/g, "\\}")
+        .replace(/\^/g, "\\^{}")
+        .replace(/&/g, "\\&")
+        .replace(/~/g, "\\textasciitilde{}")
+        .replace(/</g, "\\textless{}")
+        .replace(/>/g, "\\textgreater{}");
+
+    const linesToItems = (lines) =>
+      lines && Array.isArray(lines)
+        ? lines.map((line) => `\\item ${escape(line)}`).join("")
+        : "";
+
+    const formatList = (title, items) => {
+      if (!items || !items.length) return "";
+      return `\\section*{${escape(title)}}\\begin{itemize}[leftmargin=*]${linesToItems(items)}\\end{itemize}`;
+    };
+
+    const latex = [
+      "\\documentclass{article}",
+      "\\usepackage[utf8]{inputenc}",
+      "\\usepackage{enumitem}",
+      "\\begin{document}",
+      `\\title{${escape(activeProposal.title)}}`,
+      "\\maketitle",
+      `\\section*{Background} ${escape(activeProposal.background)}`,
+      `\\section*{Problem Statement} ${escape(activeProposal.problem_statement)}`,
+      `\\section*{Objectives}\\begin{enumerate}[leftmargin=*]${linesToItems(activeProposal.objectives)}\\end{enumerate}`,
+      `\\section*{Proposed Methodology}\\begin{enumerate}[leftmargin=*]${linesToItems(activeProposal.methodology)}\\end{enumerate}`,
+      formatList(
+        "Expected Contributions",
+        activeProposal.expected_contributions,
+      ),
+      `\\section*{Timeline} ${escape(activeProposal.timeline)}`,
+      formatList("Resources", activeProposal.resources),
+      "\\end{document}",
+    ].join("");
+
+    const safeFilename = `${activeProposal.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.tex`;
+    downloadFile(safeFilename, latex, "application/x-latex;charset=utf-8");
+  };
+
   return (
     <PageTransition>
       <div className="max-w-4xl mx-auto space-y-6">
@@ -108,108 +386,427 @@ export default function ProposalPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" icon={FileCode} size="sm">
+              <Button
+                variant="secondary"
+                icon={FileCode}
+                size="sm"
+                onClick={exportLaTeX}
+              >
                 Export as LaTeX
               </Button>
-              <Button variant="secondary" icon={Download} size="sm">
+              <Button
+                variant="secondary"
+                icon={Download}
+                size="sm"
+                onClick={downloadPDF}
+              >
                 Download PDF
               </Button>
-              <Button icon={Save} size="sm">
+              <Button
+                variant="secondary"
+                icon={FileText}
+                size="sm"
+                onClick={checkPlagiarism}
+              >
+                Check Similarity
+              </Button>
+              <Button
+                icon={Save}
+                size="sm"
+                onClick={() => setShowSaveDialog(true)}
+              >
                 Save Project
               </Button>
             </div>
           </div>
         </FadeIn>
 
+        <FadeIn delay={0.05}>
+          <Card className="bg-slate-100/80">
+            <CardBody className="space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    Proposal workflow
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    Review, edit, and export your AI proposal with clear
+                    progress steps.
+                  </p>
+                </div>
+                <div className="text-sm font-medium text-slate-700">
+                  {statusMessage}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  {
+                    title: "Validate",
+                    active: progressStep >= 1,
+                    label: "Step 1",
+                  },
+                  {
+                    title: "Generate",
+                    active: progressStep >= 2,
+                    label: "Step 2",
+                  },
+                  {
+                    title: "Review",
+                    active: progressStep >= 3,
+                    label: "Step 3",
+                  },
+                ].map((step) => (
+                  <div
+                    key={step.title}
+                    className={`rounded-3xl border p-3 transition-colors duration-200 ${
+                      step.active
+                        ? "border-primary-200 bg-primary-50/80 text-primary-700"
+                        : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.24em] font-semibold">
+                      {step.label}
+                    </p>
+                    <p className="mt-2 text-sm font-semibold">{step.title}</p>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+        </FadeIn>
+
+        {saveSuccess && (
+          <FadeIn delay={0.1}>
+            <div className="max-w-4xl mx-auto bg-green-50 border border-green-200 text-green-700 p-4 rounded">
+              {saveSuccess}
+            </div>
+          </FadeIn>
+        )}
+
+        {saveError && (
+          <FadeIn delay={0.1}>
+            <div className="max-w-4xl mx-auto bg-red-50 border border-red-200 text-red-700 p-4 rounded">
+              {saveError}
+            </div>
+          </FadeIn>
+        )}
+
+        {showSaveDialog && (
+          <FadeIn delay={0.1}>
+            <Card>
+              <CardHeader>
+                <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                  Save Project
+                </h2>
+              </CardHeader>
+              <CardBody>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Project Title *
+                    </label>
+                    <input
+                      type="text"
+                      value={projectTitle}
+                      onChange={(e) => setProjectTitle(e.target.value)}
+                      placeholder="Enter project title"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Description (Optional)
+                    </label>
+                    <textarea
+                      value={projectDescription}
+                      onChange={(e) => setProjectDescription(e.target.value)}
+                      placeholder="Enter project description"
+                      rows={3}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500"
+                    />
+                  </div>
+                  <div className="flex gap-3 justify-end">
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowSaveDialog(false)}
+                      disabled={saveLoading}
+                    >
+                      Cancel
+                    </Button>
+                    <Button onClick={handleSaveProject} disabled={saveLoading}>
+                      {saveLoading ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+          </FadeIn>
+        )}
+
+        {plagiarismLoading && (
+          <FadeIn delay={0.1}>
+            <Card>
+              <CardBody>
+                <LoadingSpinner text="Checking content similarity..." />
+              </CardBody>
+            </Card>
+          </FadeIn>
+        )}
+
+        {plagiarismError && (
+          <FadeIn delay={0.1}>
+            <div className="max-w-4xl mx-auto bg-red-50 border border-red-200 text-red-700 p-4 rounded">
+              {plagiarismError}
+            </div>
+          </FadeIn>
+        )}
+
+        {plagiarismResult && (
+          <FadeIn delay={0.1}>
+            <Card>
+              <CardHeader>
+                <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                  Similarity Check Results
+                </h2>
+              </CardHeader>
+              <CardBody>
+                <p className="text-slate-700 mb-3">
+                  {plagiarismResult.flagged
+                    ? `Potential duplicate content detected. Highest similarity: ${(plagiarismResult.max_similarity * 100).toFixed(1)}%`
+                    : `No strong duplication patterns found. Highest similarity was ${(plagiarismResult.max_similarity * 100).toFixed(1)}%.`}
+                </p>
+                <div className="space-y-3">
+                  {plagiarismResult.matches.map((match) => (
+                    <div
+                      key={match.paper_index}
+                      className="border border-slate-200 rounded-lg p-3"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            {match.title}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {match.source}
+                          </p>
+                        </div>
+                        <span className="text-sm font-semibold text-slate-700">
+                          {(match.similarity * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      {match.url && (
+                        <p className="text-xs text-slate-500 mt-2">
+                          Source URL: {match.url}
+                        </p>
+                      )}
+                      <p className="text-sm text-slate-600 mt-2">
+                        {match.snippet}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          </FadeIn>
+        )}
+
         <FadeIn delay={0.1}>
           <Card>
             <CardHeader>
-              <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
-                Proposed Title
-              </h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                    Editable Proposal Content
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Modify the proposal before exporting or saving.
+                    Line-separated fields become list entries.
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditableProposal(proposal)}
+                >
+                  Reset Edits
+                </Button>
+              </div>
             </CardHeader>
-            <CardBody>
-              <h3 className="text-xl font-bold text-slate-800 leading-relaxed">
-                {proposal.title}
-              </h3>
+            <CardBody className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Proposal Title
+                </label>
+                <input
+                  type="text"
+                  value={activeProposal?.title || ""}
+                  onChange={(e) => updateProposalField("title", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Background
+                </label>
+                <textarea
+                  value={activeProposal?.background || ""}
+                  onChange={(e) =>
+                    updateProposalField("background", e.target.value)
+                  }
+                  rows={4}
+                  className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Problem Statement
+                </label>
+                <textarea
+                  value={activeProposal?.problem_statement || ""}
+                  onChange={(e) =>
+                    updateProposalField("problem_statement", e.target.value)
+                  }
+                  rows={4}
+                  className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                />
+              </div>
             </CardBody>
           </Card>
         </FadeIn>
 
         <FadeIn delay={0.15}>
-          <Card>
-            <CardHeader>
-              <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
-                Problem Statement
-              </h2>
-            </CardHeader>
-            <CardBody>
-              <p className="text-slate-700 leading-relaxed">
-                {proposal.problem_statement}
-              </p>
-            </CardBody>
-          </Card>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                  Objectives
+                </h2>
+              </CardHeader>
+              <CardBody>
+                <textarea
+                  value={(activeProposal?.objectives || []).join("\n")}
+                  onChange={(e) =>
+                    updateProposalLines("objectives", e.target.value)
+                  }
+                  rows={5}
+                  className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Use one objective per line.
+                </p>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                  Proposed Methodology
+                </h2>
+              </CardHeader>
+              <CardBody>
+                <textarea
+                  value={(activeProposal?.methodology || []).join("\n")}
+                  onChange={(e) =>
+                    updateProposalLines("methodology", e.target.value)
+                  }
+                  rows={5}
+                  className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Each line becomes a separate methodology step.
+                </p>
+              </CardBody>
+            </Card>
+          </div>
         </FadeIn>
 
         <FadeIn delay={0.2}>
-          <Card>
-            <CardHeader>
-              <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
-                Proposed Methodology
-              </h2>
-            </CardHeader>
-            <CardBody>
-              <StaggerContainer className="space-y-3">
-                {proposal.methodology.map((step, i) => (
-                  <StaggerItem key={i}>
-                    <li className="flex items-start gap-3 list-none">
-                      <span className="flex items-center justify-center h-6 w-6 rounded-full bg-gradient-to-br from-primary-100 to-primary-200 text-primary-700 text-xs font-bold shrink-0 mt-0.5">
-                        {i + 1}
-                      </span>
-                      <p className="text-sm text-slate-700 leading-relaxed">
-                        {step}
-                      </p>
-                    </li>
-                  </StaggerItem>
-                ))}
-              </StaggerContainer>
-            </CardBody>
-          </Card>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                  Expected Contributions
+                </h2>
+              </CardHeader>
+              <CardBody>
+                <textarea
+                  value={(activeProposal?.expected_contributions || []).join(
+                    "\n",
+                  )}
+                  onChange={(e) =>
+                    updateProposalLines(
+                      "expected_contributions",
+                      e.target.value,
+                    )
+                  }
+                  rows={5}
+                  className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Use one contribution per line.
+                </p>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                  Resources
+                </h2>
+              </CardHeader>
+              <CardBody>
+                <textarea
+                  value={(activeProposal?.resources || []).join("\n")}
+                  onChange={(e) =>
+                    updateProposalLines("resources", e.target.value)
+                  }
+                  rows={5}
+                  className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Use one resource per line.
+                </p>
+              </CardBody>
+            </Card>
+          </div>
         </FadeIn>
 
         <FadeIn delay={0.25}>
           <Card>
             <CardHeader>
               <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
-                Expected Contribution
+                Timeline
               </h2>
             </CardHeader>
             <CardBody>
-              <StaggerContainer className="space-y-3">
-                {proposal.expected_contributions.map((item, i) => (
-                  <StaggerItem key={i}>
-                    <li className="flex items-start gap-3 list-none">
-                      <span className="h-1.5 w-1.5 rounded-full bg-primary-500 mt-2 shrink-0" />
-                      <p className="text-sm text-slate-700 leading-relaxed">
-                        {item}
-                      </p>
-                    </li>
-                  </StaggerItem>
-                ))}
-              </StaggerContainer>
+              <textarea
+                value={activeProposal?.timeline || ""}
+                onChange={(e) =>
+                  updateProposalField("timeline", e.target.value)
+                }
+                rows={5}
+                className="w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+              />
+              <p className="mt-2 text-xs text-slate-500">
+                Update the project timeline based on your preferred schedule.
+              </p>
             </CardBody>
           </Card>
         </FadeIn>
 
         <FadeIn delay={0.3}>
           <div className="flex flex-wrap gap-3 pt-2">
-            <Button variant="secondary" icon={FileCode}>
+            <Button variant="secondary" icon={FileCode} onClick={exportLaTeX}>
               Export as LaTeX
             </Button>
-            <Button variant="secondary" icon={Download}>
+            <Button variant="secondary" icon={Download} onClick={downloadPDF}>
               Download PDF
             </Button>
-            <Button icon={Save}>Save Project</Button>
+            <Button icon={Save} onClick={() => setShowSaveDialog(true)}>
+              Save Project
+            </Button>
           </div>
         </FadeIn>
       </div>

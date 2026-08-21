@@ -6,9 +6,11 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import ResearchInputPage from "./pages/ResearchInputPage";
 import PapersPage from "./pages/PapersPage";
+import ProjectsPage from "./pages/ProjectsPage";
 import GapAnalysisPage from "./pages/GapAnalysisPage";
 import ProposalPage from "./pages/ProposalPage";
 import PaperPage from "./pages/PaperPage";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ProfilePage from "./pages/ProfilePage";
 
 export default function App() {
@@ -25,6 +27,8 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/research" element={<ResearchInputPage />} />
           <Route path="/papers" element={<PapersPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/gap-analysis" element={<GapAnalysisPage />} />
           <Route path="/proposal" element={<ProposalPage />} />
           <Route path="/paper" element={<PaperPage />} />

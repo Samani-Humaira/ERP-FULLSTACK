@@ -21,9 +21,10 @@ ENV/
 
 # ─── Sentence-BERT model cache (large files, auto-downloads) ──────────────────
 .cache/
-models/
+/models/
 sentence_transformers/
 ~/.cache/huggingface/
+!backend/app/models/
 
 # ─── Logs & Dev Artifacts ──────────────────────────────────────────────────
 *.log

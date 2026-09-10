@@ -19,6 +19,8 @@ import {
 } from "../components/ui/animations";
 import { getDashboard } from "../api/activity";
 
+import CollaborationPanel from "../components/collaboration/collaborationPanel";
+
 // Map activity type from API to icon + label
 const ACTIVITY_META = {
   search: { icon: Search, label: "Research Search" },
@@ -98,6 +100,13 @@ export default function DashboardPage() {
             Continue your research or start something new.
           </p>
         </FadeIn>
+
+
+        {/* <CollaborationPanel
+  projectId={project.id}
+  currentUser={currentUser}
+  token={token}
+/> */}
 
         {/* Quick Actions */}
         <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 gap-4">

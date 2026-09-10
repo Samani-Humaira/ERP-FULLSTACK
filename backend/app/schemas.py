@@ -24,12 +24,20 @@ class PaperResult(BaseModel):
     abstract_enriched: bool = Field(default=False, description="True if abstract was filled during enrichment")
 
 
+class SourceStatus(BaseModel):
+    success: bool
+    count: int = 0
+    error: str | None = None
+
 class PipelineSummary(BaseModel):
-    """Breakdown of what happened at each stage — useful for debugging and transparency."""
     fetched_semantic_scholar: int = 0
     fetched_arxiv: int = 0
     fetched_crossref: int = 0
+
     total_fetched: int = 0
+
+    sources: dict[str, SourceStatus] = {}
+
     after_deduplication: int = 0
     enrichment_attempted: int = 0
     enrichment_succeeded: int = 0

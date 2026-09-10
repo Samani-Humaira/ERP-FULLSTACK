@@ -94,7 +94,7 @@ export default function PapersPage() {
               onClick={handleAnalyzeGap}
               disabled={papers.length === 0}
             >
-              Analyze Research Gap
+              Analyze Research Gap 
             </Button>
           </div>
         </FadeIn>

@@ -12,6 +12,7 @@ import ProposalPage from "./pages/ProposalPage";
 import PaperPage from "./pages/PaperPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ProfilePage from "./pages/ProfilePage";
+import AllVersions from "./pages/allVersion";
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/proposal" element={<ProposalPage />} />
           <Route path="/paper" element={<PaperPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/projects/:projectId/versions" element={<AllVersions />} />
         </Route>
 
         {/* Default redirect */}

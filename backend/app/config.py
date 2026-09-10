@@ -6,7 +6,7 @@ load_dotenv()
 
 class Settings:
     # Read and strip string values to avoid accidental leading/trailing spaces
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:pass123@localhost:5432/research_assistant")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:ss21co04461@localhost:5432/research_assistant")
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "change-this-secret").strip()
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256").strip()
 

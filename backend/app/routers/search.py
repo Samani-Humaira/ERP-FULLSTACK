@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Query
-from app.schemas import SearchRequest, SearchResponse, PipelineSummary
+from app.schemas import SearchRequest, SearchResponse, PipelineSummary , SourceStatus
 from app.clients import fetch_semantic_scholar, fetch_arxiv, fetch_crossref
 from app.services.ranker import rank_papers
 from app.services.paper_enricher import enrich_papers, _is_valid_abstract
@@ -57,11 +57,30 @@ async def search_papers(request: SearchRequest):
 
     for source_name, result in zip(source_names, results):
         if isinstance(result, Exception):
-            logger.error(f"{source_name} failed: {result}")
+            logger.exception(
+                "[Phase1] %s failed",
+                source_name,
+                exc_info=result,
+            )
+
+            summary.sources[source_name] = SourceStatus(
+                success=False,
+                count=0,
+                error=str(result),
+            )
+
             count = 0
+
         else:
             count = len(result)
-            all_papers.extend(result)
+
+            summary.sources[source_name] = SourceStatus(
+                success=True,
+                count=count,
+                error=None,
+         )
+
+        all_papers.extend(result)
 
         if source_name == "Semantic Scholar":
             summary.fetched_semantic_scholar = count

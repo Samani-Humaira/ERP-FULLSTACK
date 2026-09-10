@@ -16,7 +16,7 @@ export default function ResearchInputPage() {
     const trimmed = topic.trim();
     if (!trimmed) return "";
 
-    return `Search for recent academic research on "${trimmed}". Focus on current trends, key methodologies, notable authors, important findings, limitations, and future directions.`;
+    return `Search for recent academic research on "${trimmed}".`;
   }, [topic]);
 
   const handleSearch = (e) => {

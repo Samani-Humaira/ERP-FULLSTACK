@@ -9,6 +9,7 @@ from datetime import datetime
 import uuid
 from app.models.collaboration import ProjectMember as PMModel, MemberRole
 from sqlalchemy import or_
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,365 @@ async def delete_project(
 
 
 
+# @router.patch(
+#     "/projects/{project_id}",
+#     summary="Update project content",
+# )
+# async def update_project_content(
+#     project_id: str,
+#     payload: dict,
+#     db: Session = Depends(get_db),
+#     current_user = Depends(get_current_user),
+# ):
+#     """Update the project content JSON for the current user."""
+#     try:
+#         project = db.query(Project).filter(Project.id == project_id).first()
+#         if not project:
+#             raise HTTPException(status_code=404, detail="Project not found")
+
+#         # allow update if owner or member with sufficient role
+#         if str(project.user_id) != str(current_user.id):
+#             pm = db.query(PMModel).filter(PMModel.project_id == project_id, PMModel.user_id == current_user.id).first()
+#             if not pm or pm.role not in (MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR):
+#                 raise HTTPException(status_code=403, detail="Forbidden")
+
+#         project.content = payload
+#         db.add(project)
+#         db.commit()
+#         db.refresh(project)
+
+#         return project
+
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         db.rollback()
+#         logger.error(f"Failed to update project: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+from app.models.project_version import ProjectVersion
+
+
+# @router.patch(
+#     "/projects/{project_id}",
+#     summary="Update project content",
+# )
+# async def update_project_content(
+#     project_id: str,
+#     payload: dict,
+#     db: Session = Depends(get_db),
+#     current_user=Depends(get_current_user),
+# ):
+#     try:
+#         project = (
+#             db.query(Project)
+#             .filter(Project.id == project_id)
+#             .first()
+#         )
+
+#         if not project:
+#             raise HTTPException(
+#                 status_code=404,
+#                 detail="Project not found",
+#             )
+
+#         # Check permission
+#         if str(project.user_id) != str(current_user.id):
+#             pm = (
+#                 db.query(PMModel)
+#                 .filter(
+#                     PMModel.project_id == project_id,
+#                     PMModel.user_id == current_user.id,
+#                 )
+#                 .first()
+#             )
+
+#             if not pm or pm.role not in (
+#                 MemberRole.OWNER,
+#                 MemberRole.ADMIN,
+#                 MemberRole.EDITOR,
+#             ):
+#                 raise HTTPException(
+#                     status_code=403,
+#                     detail="Forbidden",
+#                 )
+
+#         # ----------------------------------------
+#         # 1. Update current project
+#         # ----------------------------------------
+
+#         project.content = payload
+
+#         # ----------------------------------------
+#         # 2. Create version / commit
+#         # ----------------------------------------
+
+#         version = ProjectVersion(
+#             project_id=project.id,
+#             user_id=current_user.id,
+#             commit_message="Updated project content",
+#             content=payload,
+#         )
+
+#         db.add(project)
+#         db.add(version)
+
+#         db.commit()
+
+#         db.refresh(project)
+#         db.refresh(version)
+
+#         # ----------------------------------------
+#         # 3. Return information about the update
+#         # ----------------------------------------
+
+#         return {
+#             "message": "Updated",
+
+#             "project": {
+#                 "id": str(project.id),
+#                 "content": project.content,
+#                 "updated_at": project.updated_at.isoformat()
+#                 if project.updated_at
+#                 else None,
+#             },
+
+#             "version": {
+#                 "id": str(version.id),
+#                 "user_id": str(version.user_id),
+#                 "commit_message": version.commit_message,
+#                 "created_at": version.created_at.isoformat(),
+#             },
+#         }
+
+#     except HTTPException:
+#         raise
+
+#     except Exception as e:
+#         db.rollback()
+
+#         logger.error(
+#             f"Failed to update project: {e}"
+#         )
+
+#         raise HTTPException(
+#             status_code=500,
+#             detail=str(e),
+#         )
+
+
+# @router.get(
+#     "/projects/{project_id}/versions",
+#     summary="Get project version history",
+# )
+# async def get_project_versions(
+#     project_id: str,
+#     db: Session = Depends(get_db),
+#     current_user=Depends(get_current_user),
+# ):
+#     project = (
+#         db.query(Project)
+#         .filter(Project.id == project_id)
+#         .first()
+#     )
+
+#     if not project:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Project not found",
+#         )
+
+#     # Check owner/member access
+#     if str(project.user_id) != str(current_user.id):
+#         pm = (
+#             db.query(PMModel)
+#             .filter(
+#                 PMModel.project_id == project_id,
+#                 PMModel.user_id == current_user.id,
+#             )
+#             .first()
+#         )
+
+#         if not pm:
+#             raise HTTPException(
+#                 status_code=403,
+#                 detail="Forbidden",
+#             )
+
+#     versions = (
+#         db.query(ProjectVersion)
+#         .filter(
+#             ProjectVersion.project_id == project_id
+#         )
+#         .order_by(
+#             ProjectVersion.created_at.desc()
+#         )
+#         .all()
+#     )
+
+#     result = []
+
+#     for version in versions:
+#         user = db.query(User).filter(
+#             User.id == version.user_id
+#         ).first()
+
+#         result.append({
+#             "id": str(version.id),
+#             "user_id": str(version.user_id),
+#             "user_name": (
+#                 user.full_name
+#                 if user and user.full_name
+#                 else "Unknown user"
+#             ),
+#             "user_email": (
+#                 user.email
+#                 if user
+#                 else None
+#             ),
+#             "commit_message": version.commit_message,
+#             "content": version.content,
+#             "created_at": version.created_at.isoformat(),
+#         })
+
+#     return result
+
+# @router.patch(
+#     "/projects/{project_id}",
+#     summary="Update project content",
+# )
+# async def update_project_content(
+#     project_id: str,
+#     payload: dict,
+#     db: Session = Depends(get_db),
+#     current_user=Depends(get_current_user),
+# ):
+#     try:
+#         project = (
+#             db.query(Project)
+#             .filter(Project.id == project_id)
+#             .first()
+#         )
+
+#         if not project:
+#             raise HTTPException(
+#                 status_code=404,
+#                 detail="Project not found",
+#             )
+
+#         # ----------------------------------------
+#         # 1. Check permission
+#         # ----------------------------------------
+
+#         if str(project.user_id) != str(current_user.id):
+#             pm = (
+#                 db.query(PMModel)
+#                 .filter(
+#                     PMModel.project_id == project_id,
+#                     PMModel.user_id == current_user.id,
+#                 )
+#                 .first()
+#             )
+
+#             if not pm or pm.role not in (
+#                 MemberRole.OWNER,
+#                 MemberRole.ADMIN,
+#                 MemberRole.EDITOR,
+#             ):
+#                 raise HTTPException(
+#                     status_code=403,
+#                     detail="Forbidden",
+#                 )
+
+#         # ----------------------------------------
+#         # 2. Get content + commit message
+#         # ----------------------------------------
+
+#         content = payload.get("content")
+
+#         commit_message = payload.get("commit_message")
+
+#         # If no commit message was provided,
+#         # use the default message.
+#         if not commit_message or not commit_message.strip():
+#             commit_message = "Updated project content"
+#         else:
+#             commit_message = commit_message.strip()
+
+#         # ----------------------------------------
+#         # 3. Update current project
+#         # ----------------------------------------
+
+#         project.content = content
+
+#         # ----------------------------------------
+#         # 4. Create version / commit
+#         # ----------------------------------------
+
+#         version = ProjectVersion(
+#             project_id=project.id,
+#             user_id=current_user.id,
+#             commit_message=commit_message,
+#             content=content,
+#         )
+
+#         db.add(project)
+#         db.add(version)
+
+#         db.commit()
+
+#         db.refresh(project)
+#         db.refresh(version)
+
+#         # ----------------------------------------
+#         # 5. Return updated project + version
+#         # ----------------------------------------
+
+#         return {
+#             "message": "Updated",
+
+#             "project": {
+#                 "id": str(project.id),
+#                 "content": project.content,
+#                 "updated_at": (
+#                     project.updated_at.isoformat()
+#                     if project.updated_at
+#                     else None
+#                 ),
+#             },
+
+#             "version": {
+#                 "id": str(version.id),
+#                 "user_id": str(version.user_id),
+#                 "commit_message": version.commit_message,
+#                 "created_at": (
+#                     version.created_at.isoformat()
+#                     if version.created_at
+#                     else None
+#                 ),
+#             },
+#         }
+
+#     except HTTPException:
+#         raise
+
+#     except Exception as e:
+#         db.rollback()
+
+#         logger.error(
+#             f"Failed to update project: {e}"
+#         )
+
+#         raise HTTPException(
+#             status_code=500,
+#             detail=str(e),
+#  
+# 
+#        )
+
+
+
 @router.patch(
     "/projects/{project_id}",
     summary="Update project content",
@@ -183,30 +543,210 @@ async def update_project_content(
     project_id: str,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
-    """Update the project content JSON for the current user."""
     try:
-        project = db.query(Project).filter(Project.id == project_id).first()
+        project = (
+            db.query(Project)
+            .filter(Project.id == project_id)
+            .first()
+        )
+
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Project not found",
+            )
 
-        # allow update if owner or member with sufficient role
+        # Check permission
         if str(project.user_id) != str(current_user.id):
-            pm = db.query(PMModel).filter(PMModel.project_id == project_id, PMModel.user_id == current_user.id).first()
-            if not pm or pm.role not in (MemberRole.OWNER, MemberRole.ADMIN, MemberRole.EDITOR):
-                raise HTTPException(status_code=403, detail="Forbidden")
+            pm = (
+                db.query(PMModel)
+                .filter(
+                    PMModel.project_id == project_id,
+                    PMModel.user_id == current_user.id,
+                )
+                .first()
+            )
 
-        project.content = payload
+            if not pm or pm.role not in (
+                MemberRole.OWNER,
+                MemberRole.ADMIN,
+                MemberRole.EDITOR,
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Forbidden",
+                )
+
+        # ----------------------------------------
+        # 1. Get content and commit message
+        # ----------------------------------------
+
+        content = payload.get("content")
+
+        # Commit message is metadata only.
+        # It is NOT stored inside project.content.
+        commit_message = payload.get("commit_message")
+
+        if not commit_message or not str(commit_message).strip():
+            commit_message = "Updated project content"
+        else:
+            commit_message = str(commit_message).strip()
+
+        # ----------------------------------------
+        # 2. Update current project content
+        # ----------------------------------------
+
+        project.content = content
+
+        # ----------------------------------------
+        # 3. Create version / accountability record
+        # ----------------------------------------
+
+        version = ProjectVersion(
+            project_id=project.id,
+            user_id=current_user.id,
+            commit_message=commit_message,
+            content=content,
+        )
+
         db.add(project)
-        db.commit()
-        db.refresh(project)
+        db.add(version)
 
-        return {"message": "Updated"}
+        db.commit()
+
+        db.refresh(project)
+        db.refresh(version)
+
+        # ----------------------------------------
+        # 4. Return update information
+        # ----------------------------------------
+
+        return {
+            "message": "Updated",
+
+            "project": {
+                "id": str(project.id),
+                "content": project.content,
+                "updated_at": (
+                    project.updated_at.isoformat()
+                    if project.updated_at
+                    else None
+                ),
+            },
+
+            "version": {
+                "id": str(version.id),
+                "user_id": str(version.user_id),
+                "commit_message": version.commit_message,
+                "content": version.content,
+                "created_at": (
+                    version.created_at.isoformat()
+                    if version.created_at
+                    else None
+                ),
+            },
+        }
 
     except HTTPException:
         raise
+
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to update project: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
+        logger.error(
+            f"Failed to update project: {e}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+@router.get(
+    "/projects/{project_id}/versions",
+    summary="Get project version history",
+)
+async def get_project_versions(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    project = (
+        db.query(Project)
+        .filter(Project.id == project_id)
+        .first()
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+    # Check owner/member access
+    if str(project.user_id) != str(current_user.id):
+        pm = (
+            db.query(PMModel)
+            .filter(
+                PMModel.project_id == project_id,
+                PMModel.user_id == current_user.id,
+            )
+            .first()
+        )
+
+        if not pm:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden",
+            )
+
+    versions = (
+        db.query(ProjectVersion)
+        .filter(
+            ProjectVersion.project_id == project_id
+        )
+        .order_by(
+            ProjectVersion.created_at.desc()
+        )
+        .all()
+    )
+
+    result = []
+
+    for version in versions:
+        user = (
+            db.query(User)
+            .filter(User.id == version.user_id)
+            .first()
+        )
+
+        result.append(
+            {
+                "id": str(version.id),
+                "user_id": str(version.user_id),
+                "user_name": (
+                    user.full_name
+                    if user and user.full_name
+                    else "Unknown user"
+                ),
+                "user_email": (
+                    user.email
+                    if user
+                    else None
+                ),
+                "commit_message": (
+                    version.commit_message
+                    or "Updated project"
+                ),
+                "content": version.content,
+                "created_at": (
+                    version.created_at.isoformat()
+                    if version.created_at
+                    else None
+                ),
+            }
+        )
+
+    return result

@@ -49,3 +49,82 @@ class CollabClient {
 }
 
 export default CollabClient;
+
+
+
+const API_URL = "http://localhost:8000";
+
+
+export async function getProjectMessages(
+  projectId,
+  token
+) {
+  const response = await fetch(
+    `${API_URL}/projects/${projectId}/messages`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      "Failed to load messages"
+    );
+  }
+
+  return response.json();
+}
+
+
+export async function getProjectComments(
+  projectId,
+  token
+) {
+  const response = await fetch(
+    `${API_URL}/projects/${projectId}/comments`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      "Failed to load comments"
+    );
+  }
+
+  return response.json();
+}
+
+
+export async function createComment(
+  projectId,
+  data,
+  token
+) {
+  const response = await fetch(
+    `${API_URL}/projects/${projectId}/comments`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      "Failed to create comment"
+    );
+  }
+
+  return response.json();
+}

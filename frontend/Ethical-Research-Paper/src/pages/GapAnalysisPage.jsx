@@ -25,6 +25,67 @@ const priorityVariant = {
   Low: "neutral",
 };
 
+const createProposalActivity = async () => {
+  try {
+    const token = localStorage.getItem("access_token");
+
+    const res = await fetch(
+      "http://localhost:8000/api/v1/activities/proposal",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.detail || "Failed to create proposal activity");
+    }
+
+    const data = await res.json();
+
+    console.log("Proposal activity created:", data);
+
+    return data;
+  } catch (err) {
+    console.error("Proposal activity error:", err);
+    throw err;
+  }
+};
+
+/*
+const createProposalActivity = async () => {
+  try {
+    const res = await fetch(
+      "http://localhost:8000/api/v1/activities/proposal",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(
+        errData.detail || "Failed to create proposal activity"
+      );
+    }
+
+    const data = await res.json();
+
+    console.log("Activity created:", data);
+
+    return data;
+  } catch (err) {
+    console.error("Proposal activity error:", err);
+  }
+};*/
+
 export default function GapAnalysisPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -121,14 +182,27 @@ export default function GapAnalysisPage() {
             <div className="flex flex-wrap gap-2">
               <Button
                 icon={ClipboardPen}
-                onClick={() =>
+                onClick={async () => {
+                  try {
+                    await createProposalActivity();
+                  } catch (error) {
+                    console.error("Activity creation failed:", error);
+                  }
+
                   navigate("/proposal", {
-                    state: { query, papers, themes, limitations, gaps },
-                  })
-                }
+                    state: {
+                      query,
+                      papers,
+                      themes,
+                      limitations,
+                      gaps,
+                    },
+                  });
+                }}
               >
                 Generate Research Proposal
               </Button>
+
               <Button
                 variant="secondary"
                 icon={FileCode}

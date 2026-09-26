@@ -176,8 +176,22 @@
 //   );
 // }
 
-
 import React, { useEffect, useState, useRef } from "react";
+import EditorAssistant from "./EditorAssistant";
+
+function replaceAtPath(value, path, replacement, depth = 0) {
+  if (depth === path.length) return replacement;
+  const key = path[depth];
+  if (!value || typeof value !== "object" || !(key in value)) {
+    throw new Error(
+      "The selected section is no longer available in the editor.",
+    );
+  }
+
+  const copy = Array.isArray(value) ? [...value] : { ...value };
+  copy[key] = replaceAtPath(value[key], path, replacement, depth + 1);
+  return copy;
+}
 
 export default function CollabEditor({
   projectId,
@@ -189,7 +203,7 @@ export default function CollabEditor({
   presence,
 }) {
   const [content, setContent] = useState(
-    JSON.stringify(propContent || {}, null, 2)
+    JSON.stringify(propContent || {}, null, 2),
   );
 
   const [commitMessage, setCommitMessage] = useState("");
@@ -198,6 +212,14 @@ export default function CollabEditor({
 
   const sendTimer = useRef(null);
   const changeTimer = useRef(null);
+
+  let parsedContent = null;
+  let contentIsValid = true;
+  try {
+    parsedContent = JSON.parse(content);
+  } catch {
+    contentIsValid = false;
+  }
 
   useEffect(() => {
     setContent(JSON.stringify(propContent || {}, null, 2));
@@ -279,7 +301,7 @@ export default function CollabEditor({
       setSaveMessage(
         err.message === "Unexpected end of JSON input"
           ? "✗ Invalid JSON — please correct it before saving."
-          : `✗ ${err.message || "Failed to save changes."}`
+          : `✗ ${err.message || "Failed to save changes."}`,
       );
 
       setTimeout(() => {
@@ -288,18 +310,38 @@ export default function CollabEditor({
     }
   };
 
+  const handleApplySuggestion = (path, suggestedText) => {
+    if (!contentIsValid) {
+      throw new Error(
+        "Fix the invalid JSON before applying an assistant suggestion.",
+      );
+    }
+
+    const updatedContent = replaceAtPath(parsedContent, path, suggestedText);
+    const updatedValue = JSON.stringify(updatedContent, null, 2);
+    setContent(updatedValue);
+
+    if (changeTimer.current) clearTimeout(changeTimer.current);
+    if (sendTimer.current) clearTimeout(sendTimer.current);
+    onContentChange?.(updatedContent);
+    client?.send({
+      type: "delta",
+      payload: {
+        project_id: projectId,
+        sender_id: user?.id,
+        content: updatedContent,
+      },
+    });
+  };
+
   return (
     <div className="space-y-3 w-full">
-
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">
-          Collaborative Editor
-        </div>
+        <div className="text-sm text-slate-500">Collaborative Editor</div>
 
         <div className="text-xs text-slate-600">
-          Active:{" "}
-          {presence?.map((p) => p.full_name).join(", ") || "0"}
+          Active: {presence?.map((p) => p.full_name).join(", ") || "0"}
         </div>
       </div>
 
@@ -310,6 +352,19 @@ export default function CollabEditor({
         rows={24}
         className="w-full p-3 bg-white border rounded font-mono text-sm"
       />
+
+      {contentIsValid ? (
+        <EditorAssistant
+          projectId={projectId}
+          content={parsedContent}
+          onApplySuggestion={handleApplySuggestion}
+        />
+      ) : (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          The AI editor assistant is available when the document contains valid
+          JSON.
+        </p>
+      )}
 
       {/* Commit message */}
       <div>
@@ -325,9 +380,7 @@ export default function CollabEditor({
           className="w-full p-2 border rounded text-sm"
         />
 
-        <p className="mt-1 text-xs text-slate-400">
-          Add commit message!!!
-        </p>
+        <p className="mt-1 text-xs text-slate-400">Add commit message!!!</p>
       </div>
 
       {/* Save */}
@@ -347,9 +400,7 @@ export default function CollabEditor({
         {saveMessage && (
           <span
             className={`text-sm font-medium ${
-              saveMessage.includes("✓")
-                ? "text-green-600"
-                : "text-red-600"
+              saveMessage.includes("✓") ? "text-green-600" : "text-red-600"
             }`}
           >
             {saveMessage}

@@ -6,7 +6,7 @@ load_dotenv()
 
 class Settings:
     # Read and strip string values to avoid accidental leading/trailing spaces
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:ss21co04461@localhost:5432/research_assistant")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:your-password@localhost:5432/research_assistant")
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "change-this-secret").strip()
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256").strip()
 
@@ -15,6 +15,11 @@ class Settings:
 
     SEMANTIC_SCHOLAR_API_KEY: str = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
     CROSSREF_MAILTO: str = os.getenv("CROSSREF_MAILTO", "").strip()
+
+    # OpenAI-compatible chat completion provider for the editor assistant
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip()
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini").strip()
 
     # SMTP / email settings for sending invites
     SMTP_HOST: str = os.getenv("SMTP_HOST", "").strip()

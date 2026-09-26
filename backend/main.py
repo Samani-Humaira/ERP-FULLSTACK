@@ -18,6 +18,7 @@ from app.routers import project as project_router
 from app.routers import auto_generate
 from app.routers import collaboration
 from app.routers import collaboration_ws
+from app.routers import editor_assistant
 
 # Create all DB tables on startup
 Base.metadata.create_all(bind=engine)
@@ -56,6 +57,9 @@ app.include_router(plagiarism.router, prefix="/api/v1/plagiarism", tags=["Plagia
 
 # Project save/load/management
 app.include_router(project_router.router, prefix="/api/v1", tags=["Projects"])
+
+# AI writing and editing assistance for saved projects
+app.include_router(editor_assistant.router, prefix="/api/v1", tags=["Editor Assistant"])
 
 # Collaboration REST
 app.include_router(collaboration.router, prefix="/api/v1", tags=["Collaboration"])

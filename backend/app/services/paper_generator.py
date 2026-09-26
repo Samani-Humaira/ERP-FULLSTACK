@@ -6,6 +6,7 @@ Creates structured academic papers with all standard sections.
 """
 
 import logging
+import re
 from typing import List, Dict, Any
 from app.schemas import PaperRequest, PaperResponse, PaperSection
 
@@ -16,7 +17,7 @@ def generate_paper(request: PaperRequest) -> PaperResponse:
     """
     Generate a complete research paper from gap analysis data.
     """
-    query = request.query
+    query = _clean_research_topic(request.query)
     themes = request.themes
     limitations = request.limitations
     gaps = request.gaps
@@ -81,29 +82,66 @@ def generate_paper(request: PaperRequest) -> PaperResponse:
 
 
 def _generate_paper_title(query: str, gaps: List[Dict[str, Any]]) -> str:
-    """Generate academic paper title."""
-    if gaps:
-        top_gap = gaps[0]
-        gap_title = top_gap.get('title', '').replace('Underexplored area:', '').strip()
-        return f"{gap_title}: A Comprehensive Analysis in {query.title()}"
-    return f"A Comprehensive Study on {query.title()}"
+    """Create a concise title from the topic, not from a search instruction or gap label."""
+    topic = _clean_research_topic(query)
+    return f"{topic}: Current Research and Open Challenges"
+
+
+def _clean_research_topic(query: str) -> str:
+    """Remove common prompt wording accidentally included in a user's search query."""
+    topic = re.sub(r"\s+", " ", (query or "")).strip().strip('"“”\'` ')
+    instruction_prefix = re.compile(
+        r"^(?:(?:please\s+)?(?:search|find|review|analyze)\s+for\s+)?"
+        r"(?:(?:recent|current)\s+)?(?:academic\s+)?(?:research|literature)\s+"
+        r"(?:papers?\s+)?(?:on|about|into)\s+",
+        re.IGNORECASE,
+    )
+    for _ in range(3):
+        cleaned = instruction_prefix.sub("", topic).strip()
+        if cleaned == topic:
+            break
+        topic = cleaned
+
+    # Search prompts often append instructions after the actual subject.
+    topic = re.split(
+        r"(?:[.!?]\s+|\s+)(?:focus on|with a focus on|include|cover|examine|analyze)\b",
+        topic,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    topic = topic.strip().strip('"“”\'` .,:;')
+
+    # If a prompt nests the topic in quotation marks, prefer the innermost quoted subject.
+    quoted_topics = re.findall(r'["“\']([^"”\']{2,100})["”\']', topic)
+    if quoted_topics:
+        topic = quoted_topics[-1].strip()
+
+    topic = re.sub(r"\s+", " ", topic).strip().strip('"“”\'` .,:;')
+    if not topic:
+        topic = "Research and Emerging Applications"
+
+    topic = topic[:100].strip()
+    titled = topic.title()
+    for acronym in ("AI", "NLP", "IoT", "ICT", "COVID-19", "3D"):
+        titled = re.sub(rf"\b{re.escape(acronym.title())}\b", acronym, titled)
+    return titled
 
 
 def _generate_abstract(query: str, themes: List[str], gaps: List[Dict[str, Any]]) -> str:
     """Generate paper abstract."""
     theme_text = ", ".join(themes[:2]) if themes else "emerging research areas"
 
-    abstract = f"This paper presents a comprehensive analysis of {query.lower()} within the context of {theme_text}.\\n\\n"
+    abstract = f"This paper presents a comprehensive analysis of {query.lower()} within the context of {theme_text}.\n\n"
 
     if gaps:
         top_gap = gaps[0]
         gap_desc = top_gap.get('description', '')[:100]
-        abstract += f"The study addresses the critical gap: {gap_desc}...\\n\\n"
+        abstract += f"The study addresses the critical gap: {gap_desc}.\n\n"
 
-    abstract += f"Through systematic literature review and analysis of recent publications,\\n"
-    abstract += f"this research identifies key challenges, proposes novel approaches, and provides\\n"
-    abstract += f"insights for future research directions.\\n\\n"
-    abstract += f"The findings contribute to the advancement of knowledge in {theme_text}\\n"
+    abstract += f"Through systematic literature review and analysis of recent publications,\n"
+    abstract += f"this research identifies key challenges, proposes novel approaches, and provides\n"
+    abstract += f"insights for future research directions.\n\n"
+    abstract += f"The findings contribute to the advancement of knowledge in {theme_text}\n"
     abstract += f"and offer practical implications for researchers and practitioners."
 
     return abstract

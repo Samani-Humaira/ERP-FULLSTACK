@@ -632,9 +632,6 @@
 //   return updatedProject;
 // }*/
 
-
-
-                        
 //                           presence={presence}
 //                         />
 
@@ -760,7 +757,6 @@
 //   );
 // }
 
-
 import { useEffect, useState, useRef } from "react";
 
 import { useNavigate, useParams } from "react-router-dom";
@@ -784,6 +780,128 @@ import CollabEditor from "../components/layout/CollabEditor";
 import CommentPanel from "../components/layout/CommentPanel";
 import VersionHistory from "../components/layout/VersionHistory";
 import TeamPanel from "../components/layout/TeamPanel";
+
+function displayPaperTitle(title, query) {
+  const source = String(query || title || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const prefix =
+    /^(?:(?:please\s+)?(?:search|find|review|analyze)\s+for\s+)?(?:(?:recent|current)\s+)?(?:academic\s+)?(?:research|literature)\s+(?:papers?\s+)?(?:on|about|into)\s+/i;
+  let topic = source;
+  for (let index = 0; index < 3; index += 1) {
+    const cleaned = topic.replace(prefix, "").trim();
+    if (cleaned === topic) break;
+    topic = cleaned;
+  }
+  topic = topic.split(
+    /(?:[.!?]\s+|\s+)(?:focus on|with a focus on|include|cover|examine|analyze)\b/i,
+  )[0];
+  const quotedTopics = [...topic.matchAll(/["“']([^"”']{2,100})["”']/g)];
+  if (quotedTopics.length) topic = quotedTopics[quotedTopics.length - 1][1];
+  topic = topic
+    .replace(/["“”'`.,:;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const hasPromptArtifacts =
+    /search for recent academic research|focus on current trends|notable authors|important findings/i.test(
+      String(title || ""),
+    );
+  if (!topic || !hasPromptArtifacts) return title || "Research Paper";
+
+  let formattedTopic = topic
+    .slice(0, 100)
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  formattedTopic = formattedTopic
+    .replace(/\bAi\b/g, "AI")
+    .replace(/\bNlp\b/g, "NLP")
+    .replace(/\bIot\b/g, "IoT");
+  return `${formattedTopic}: Current Research and Open Challenges`;
+}
+
+function renderAcademicText(value, keyPrefix = "paper-text") {
+  const normalized = String(value ?? "")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n?/g, "\n");
+  const blocks = [];
+  let paragraph = [];
+  let listItems = [];
+  let listType = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      blocks.push({ type: "paragraph", text: paragraph.join(" ") });
+      paragraph = [];
+    }
+  };
+  const flushList = () => {
+    if (listItems.length) {
+      blocks.push({ type: listType, items: listItems });
+      listItems = [];
+      listType = null;
+    }
+  };
+
+  normalized.split("\n").forEach((line) => {
+    const trimmed = line.trim();
+    const item = trimmed.match(/^(?:(\d+)[.)]|[-*•])\s+(.+)$/);
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    if (item) {
+      flushParagraph();
+      const nextType = item[1] ? "ol" : "ul";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push(item[2]);
+      return;
+    }
+
+    flushList();
+    if (trimmed.length < 90 && /^[^:]+:$/.test(trimmed)) {
+      flushParagraph();
+      blocks.push({ type: "heading", text: trimmed.slice(0, -1) });
+    } else {
+      paragraph.push(trimmed);
+    }
+  });
+  flushParagraph();
+  flushList();
+
+  return blocks.map((block, index) => {
+    const key = `${keyPrefix}-${index}`;
+    if (block.type === "ol" || block.type === "ul") {
+      const List = block.type;
+      return (
+        <List
+          key={key}
+          className="my-3 space-y-1.5 pl-6 text-slate-700 marker:text-violet-600"
+        >
+          {block.items.map((item, itemIndex) => (
+            <li key={`${key}-${itemIndex}`} className="leading-7">
+              {item}
+            </li>
+          ))}
+        </List>
+      );
+    }
+    if (block.type === "heading") {
+      return (
+        <h4 key={key} className="mb-1 mt-4 font-semibold text-slate-800">
+          {block.text}
+        </h4>
+      );
+    }
+    return (
+      <p key={key} className="my-3 leading-7 text-slate-700">
+        {block.text}
+      </p>
+    );
+  });
+}
 
 export default function ProjectDetailPage() {
   const navigate = useNavigate();
@@ -809,57 +927,51 @@ export default function ProjectDetailPage() {
 
   const clientRef = useRef(null);
 
-//   const handleProposalClick = async () => {
-//     await fetch("/api/v1/activities/proposal", {
-//         method: "POST",
-//         headers: {
-//             Authorization: `Bearer ${token}`,
-//         },
-//     });
+  //   const handleProposalClick = async () => {
+  //     await fetch("/api/v1/activities/proposal", {
+  //         method: "POST",
+  //         headers: {
+  //             Authorization: `Bearer ${token}`,
+  //         },
+  //     });
 
-//     // Continue with whatever your proposal button already does
-// };
+  //     // Continue with whatever your proposal button already does
+  // };
 
-// const createProposalActivity = async () => {
-//   try {
-//     await api.post("/activities/proposal");
-//   } catch (error) {
-//     console.error("Failed to create proposal activity:", error);
-//   }
-// };
+  // const createProposalActivity = async () => {
+  //   try {
+  //     await api.post("/activities/proposal");
+  //   } catch (error) {
+  //     console.error("Failed to create proposal activity:", error);
+  //   }
+  // };
 
-const createProposalActivity = async () => {
-  try {
-    const res = await fetch(
-      "http://localhost:8000/api/v1/activities/proposal",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+  const createProposalActivity = async () => {
+    try {
+      const res = await fetch(
+        "http://localhost:8000/api/v1/activities/proposal",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
         },
-      }
-    );
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(
-        errData.detail || "Failed to create proposal activity"
       );
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to create proposal activity");
+      }
+
+      const data = await res.json();
+
+      console.log("Activity created:", data);
+
+      return data;
+    } catch (err) {
+      console.error("Proposal activity error:", err);
     }
-
-    const data = await res.json();
-
-    console.log("Activity created:", data);
-
-    return data;
-  } catch (err) {
-    console.error("Proposal activity error:", err);
-  }
-};
-
-
-
-
+  };
 
   const formatHeading = (key) =>
     key
@@ -869,11 +981,7 @@ const createProposalActivity = async () => {
 
   const renderContentValue = (value) => {
     if (value === null || value === undefined) {
-      return (
-        <p className="text-slate-500 mt-2">
-          No content available.
-        </p>
-      );
+      return <p className="text-slate-500 mt-2">No content available.</p>;
     }
 
     if (
@@ -893,8 +1001,7 @@ const createProposalActivity = async () => {
         <ul className="mt-2 list-disc pl-5 text-slate-700 space-y-1">
           {value.map((item, index) => (
             <li key={index} className="mt-1">
-              {typeof item === "string" ||
-              typeof item === "number"
+              {typeof item === "string" || typeof item === "number"
                 ? String(item)
                 : renderContentValue(item)}
             </li>
@@ -906,35 +1013,25 @@ const createProposalActivity = async () => {
     if (typeof value === "object") {
       return (
         <div className="space-y-4 mt-2">
-          {Object.entries(value).map(
-            ([subKey, subValue]) => (
-              <div key={subKey}>
-                <h4 className="font-semibold text-slate-800">
-                  {formatHeading(subKey)}
-                </h4>
+          {Object.entries(value).map(([subKey, subValue]) => (
+            <div key={subKey}>
+              <h4 className="font-semibold text-slate-800">
+                {formatHeading(subKey)}
+              </h4>
 
-                {renderContentValue(subValue)}
-              </div>
-            ),
-          )}
+              {renderContentValue(subValue)}
+            </div>
+          ))}
         </div>
       );
     }
 
-    return (
-      <p className="text-slate-500 mt-2">
-        Unsupported content format.
-      </p>
-    );
+    return <p className="text-slate-500 mt-2">Unsupported content format.</p>;
   };
 
-  const renderProjectContent = (content) => {
+  const renderProjectContent = (content, originalQuery = "") => {
     if (!content) {
-      return (
-        <p className="text-slate-500 mt-2">
-          No content available.
-        </p>
-      );
+      return <p className="text-slate-500 mt-2">No content available.</p>;
     }
 
     if (
@@ -951,6 +1048,51 @@ const createProposalActivity = async () => {
 
     if (Array.isArray(content)) {
       return renderContentValue(content);
+    }
+
+    const paperContent = Array.isArray(content.sections)
+      ? content
+      : content.content && Array.isArray(content.content.sections)
+        ? content.content
+        : null;
+
+    if (paperContent && (paperContent.title || paperContent.abstract)) {
+      return (
+        <article className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10">
+          {paperContent.title && (
+            <h2 className="mb-8 text-center text-2xl font-bold leading-tight text-slate-900">
+              {displayPaperTitle(paperContent.title, originalQuery)}
+            </h2>
+          )}
+          {paperContent.abstract && (
+            <section className="mb-8 border-b border-slate-200 pb-6">
+              <h3 className="mb-3 text-center text-lg font-semibold text-slate-900">
+                Abstract
+              </h3>
+              <div className="text-justify text-slate-700">
+                {renderAcademicText(paperContent.abstract, "paper-abstract")}
+              </div>
+            </section>
+          )}
+          <div className="space-y-8">
+            {paperContent.sections.map((section, index) => (
+              <section key={`${section.title || "section"}-${index}`}>
+                {section.title && (
+                  <h3 className="mb-3 border-b border-slate-200 pb-2 text-lg font-bold uppercase tracking-wide text-slate-900">
+                    {section.title}
+                  </h3>
+                )}
+                <div className="text-justify">
+                  {renderAcademicText(
+                    section.content,
+                    `paper-section-${index}`,
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+        </article>
+      );
     }
 
     return (
@@ -984,9 +1126,7 @@ const createProposalActivity = async () => {
     const lines = [];
 
     const title =
-      project.content?.title ||
-      project.title ||
-      "This research project";
+      project.content?.title || project.title || "This research project";
 
     lines.push(
       `${title} is a ${project.project_type} focused on ${
@@ -995,21 +1135,15 @@ const createProposalActivity = async () => {
     );
 
     if (project.content?.background) {
-      lines.push(
-        `Background: ${project.content.background}`,
-      );
+      lines.push(`Background: ${project.content.background}`);
     }
 
     if (project.content?.problem_statement) {
-      lines.push(
-        `Problem: ${project.content.problem_statement}`,
-      );
+      lines.push(`Problem: ${project.content.problem_statement}`);
     }
 
     if (project.content?.objectives) {
-      const objectives = Array.isArray(
-        project.content.objectives,
-      )
+      const objectives = Array.isArray(project.content.objectives)
         ? project.content.objectives.join("; ")
         : project.content.objectives;
 
@@ -1017,9 +1151,7 @@ const createProposalActivity = async () => {
     }
 
     if (project.content?.methodology) {
-      const methodology = Array.isArray(
-        project.content.methodology,
-      )
+      const methodology = Array.isArray(project.content.methodology)
         ? project.content.methodology.join(" ")
         : project.content.methodology;
 
@@ -1033,9 +1165,7 @@ const createProposalActivity = async () => {
         ? project.content.expected_contributions.join("; ")
         : project.content.expected_contributions;
 
-      lines.push(
-        `Expected contributions: ${contributions}`,
-      );
+      lines.push(`Expected contributions: ${contributions}`);
     }
 
     if (project.gaps_data) {
@@ -1072,29 +1202,17 @@ const createProposalActivity = async () => {
       ? paper.authors.join(", ")
       : paper.authors || "Unknown authors";
 
-    const year = paper.year
-      ? ` (${paper.year})`
-      : "";
+    const year = paper.year ? ` (${paper.year})` : "";
 
-    const title =
-      paper.title ||
-      paper.name ||
-      `Paper ${index + 1}`;
+    const title = paper.title || paper.name || `Paper ${index + 1}`;
 
-    const source =
-      paper.source ||
-      paper.journal ||
-      paper.url ||
-      "";
+    const source = paper.source || paper.journal || paper.url || "";
 
-    return `${authors}${year}. ${title}${
-      source ? `. ${source}` : ""
-    }`;
+    return `${authors}${year}. ${title}${source ? `. ${source}` : ""}`;
   };
 
   const buildLaTeX = () => {
-    const summary =
-      generatedSummary || summarizeProject();
+    const summary = generatedSummary || summarizeProject();
 
     let latex = `
 \\documentclass{article}
@@ -1129,24 +1247,22 @@ ${project.query || "N/A"}
       if (Array.isArray(value)) {
         return (
           value
-            .map((item) =>
-              `\\item ${
-                typeof item === "object"
-                  ? formatLaTeX(item, level + 1)
-                  : String(item)
-              }`,
+            .map(
+              (item) =>
+                `\\item ${
+                  typeof item === "object"
+                    ? formatLaTeX(item, level + 1)
+                    : String(item)
+                }`,
             )
-            .join("\n") +
-          "\\\\\n"
+            .join("\n") + "\\\\\n"
         );
       }
 
       return Object.entries(value)
         .map(
           ([key, val]) =>
-            `\\section*{${formatHeading(
-              key,
-            )}}${formatLaTeX(val, level + 1)}`,
+            `\\section*{${formatHeading(key)}}${formatLaTeX(val, level + 1)}`,
         )
         .join("");
     };
@@ -1166,14 +1282,7 @@ ${formatLaTeX(project.content)}
         latex += `
 \\begin{itemize}
 ${project.gaps_data
-  .map(
-    (gap) =>
-      `\\item ${
-        typeof gap === "string"
-          ? gap
-          : JSON.stringify(gap)
-      }`,
-  )
+  .map((gap) => `\\item ${typeof gap === "string" ? gap : JSON.stringify(gap)}`)
   .join("\n")}
 \\end{itemize}
 
@@ -1189,13 +1298,7 @@ ${project.gaps_data
 \\section*{Bibliography}
 \\begin{itemize}
 ${project.papers_data
-  .map(
-    (paper, index) =>
-      `\\item ${makeCitationText(
-        paper,
-        index,
-      )}`,
-  )
+  .map((paper, index) => `\\item ${makeCitationText(paper, index)}`)
   .join("\n")}
 \\end{itemize}
 
@@ -1209,11 +1312,7 @@ ${project.papers_data
     return latex;
   };
 
-  const downloadFile = (
-    filename,
-    content,
-    mimeType,
-  ) => {
+  const downloadFile = (filename, content, mimeType) => {
     const blob = new Blob([content], {
       type: mimeType,
     });
@@ -1238,9 +1337,7 @@ ${project.papers_data
     const latex = buildLaTeX();
 
     downloadFile(
-      `${project.title
-        .replace(/[^a-z0-9]/gi, "_")
-        .toLowerCase()}.tex`,
+      `${project.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.tex`,
       latex,
       "application/x-latex;charset=utf-8",
     );
@@ -1249,31 +1346,19 @@ ${project.papers_data
   const exportPDF = () => {
     const doc = new jsPDF("p", "pt", "a4");
 
-    const pageWidth =
-      doc.internal.pageSize.getWidth();
+    const pageWidth = doc.internal.pageSize.getWidth();
 
     const margin = 40;
 
     let y = margin;
 
-    const addText = (
-      text,
-      fontSize = 12,
-      spacing = 16,
-    ) => {
+    const addText = (text, fontSize = 12, spacing = 16) => {
       doc.setFontSize(fontSize);
 
-      const lines = doc.splitTextToSize(
-        String(text),
-        pageWidth - margin * 2,
-      );
+      const lines = doc.splitTextToSize(String(text), pageWidth - margin * 2);
 
       lines.forEach((line) => {
-        if (
-          y + fontSize >
-          doc.internal.pageSize.getHeight() -
-            margin
-        ) {
+        if (y + fontSize > doc.internal.pageSize.getHeight() - margin) {
           doc.addPage();
           y = margin;
         }
@@ -1286,66 +1371,33 @@ ${project.papers_data
 
     addText(project.title, 18, 24);
 
-    addText(
-      `Type: ${project.project_type}`,
-    );
+    addText(`Type: ${project.project_type}`);
 
-    addText(
-      `Query: ${project.query || "N/A"}`,
-    );
+    addText(`Query: ${project.query || "N/A"}`);
 
     addText("Summary:", 14, 20);
 
-    addText(
-      generatedSummary || summarizeProject(),
-      12,
-      16,
-    );
+    addText(generatedSummary || summarizeProject(), 12, 16);
 
     addText("Content:", 14, 20);
 
-    addText(
-      JSON.stringify(project.content, null, 2),
-      10,
-      14,
-    );
+    addText(JSON.stringify(project.content, null, 2), 10, 14);
 
     if (project.gaps_data) {
       addText("Gap Analysis:", 14, 20);
 
-      addText(
-        JSON.stringify(
-          project.gaps_data,
-          null,
-          2,
-        ),
-        10,
-        14,
-      );
+      addText(JSON.stringify(project.gaps_data, null, 2), 10, 14);
     }
 
     if (project.papers_data?.length) {
       addText("Bibliography:", 14, 20);
 
-      project.papers_data.forEach(
-        (paper, index) => {
-          addText(
-            `${index + 1}. ${makeCitationText(
-              paper,
-              index,
-            )}`,
-            10,
-            14,
-          );
-        },
-      );
+      project.papers_data.forEach((paper, index) => {
+        addText(`${index + 1}. ${makeCitationText(paper, index)}`, 10, 14);
+      });
     }
 
-    doc.save(
-      `${project.title
-        .replace(/[^a-z0-9]/gi, "_")
-        .toLowerCase()}.pdf`,
-    );
+    doc.save(`${project.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.pdf`);
   };
 
   useEffect(() => {
@@ -1354,38 +1406,27 @@ ${project.papers_data
         setLoading(true);
         setError(null);
 
-        const token =
-          localStorage.getItem("token");
+        const token = localStorage.getItem("token");
 
         if (!token) {
-          setError(
-            "Not authenticated. Please login first.",
-          );
+          setError("Not authenticated. Please login first.");
 
           setLoading(false);
 
           return;
         }
 
-        const res = await fetch(
-          `http://localhost:8000/api/v1/projects/${id}`,
-          {
-            headers: {
-              "Content-Type":
-                "application/json",
-              Authorization: `Bearer ${token}`,
-            },
+        const res = await fetch(`http://localhost:8000/api/v1/projects/${id}`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
-        );
+        });
 
         if (!res.ok) {
-          const errData =
-            await res.json().catch(() => ({}));
+          const errData = await res.json().catch(() => ({}));
 
-          throw new Error(
-            errData.detail ||
-              "Failed to load project details.",
-          );
+          throw new Error(errData.detail || "Failed to load project details.");
         }
 
         const data = await res.json();
@@ -1397,48 +1438,35 @@ ${project.papers_data
         // ----------------------------------------
 
         try {
-          const params =
-            new URLSearchParams(
-              window.location.search,
-            );
+          const params = new URLSearchParams(window.location.search);
 
-          const inviteToken =
-            params.get("invite_token");
+          const inviteToken = params.get("invite_token");
 
-          const localToken =
-            localStorage.getItem("token");
+          const localToken = localStorage.getItem("token");
 
           if (inviteToken) {
             if (!localToken) {
-              setPendingInviteToken(
-                inviteToken,
-              );
+              setPendingInviteToken(inviteToken);
             } else {
-              const acceptRes =
-                await fetch(
-                  `http://localhost:8000/api/v1/projects/${id}/invite/accept`,
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type":
-                        "application/json",
-                      Authorization: `Bearer ${localToken}`,
-                    },
-                    body: JSON.stringify({
-                      token: inviteToken,
-                    }),
+              const acceptRes = await fetch(
+                `http://localhost:8000/api/v1/projects/${id}/invite/accept`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localToken}`,
                   },
-                );
+                  body: JSON.stringify({
+                    token: inviteToken,
+                  }),
+                },
+              );
 
               if (acceptRes.ok) {
-                const body =
-                  await acceptRes.json();
+                const body = await acceptRes.json();
 
                 if (body?.member) {
-                  setMembers((m) => [
-                    ...m,
-                    body.member,
-                  ]);
+                  setMembers((m) => [...m, body.member]);
                 }
               }
             }
@@ -1485,71 +1513,34 @@ ${project.papers_data
         // Create collaboration client
         // ----------------------------------------
 
-        const user = JSON.parse(
-          localStorage.getItem("user") || "{}",
-        );
+        const user = JSON.parse(localStorage.getItem("user") || "{}");
 
-        const CollabClient =
-          (
-            await import(
-              "../api/collaboration"
-            )
-          ).default;
+        const CollabClient = (await import("../api/collaboration")).default;
 
-        const client = new CollabClient(
-          id,
-          (msg) => {
-            if (msg.type === "delta") {
-              const payload =
-                msg.payload || {};
+        const client = new CollabClient(id, (msg) => {
+          if (msg.type === "delta") {
+            const payload = msg.payload || {};
 
-              if (
-                payload.sender_id !==
-                  user.id &&
-                payload.content
-              ) {
-                setProject((p) => ({
-                  ...p,
-                  content:
-                    payload.content,
-                }));
-              }
-            } else if (
-              msg.type === "presence"
-            ) {
-              setPresence(
-                msg.presence || [],
-              );
-            } else if (
-              msg.type ===
-              "comment_created"
-            ) {
-              setComments((c) => [
-                ...c,
-                msg.payload,
-              ]);
-            } else if (
-              msg.type === "member_added"
-            ) {
-              setMembers((m) => [
-                ...m,
-                msg.payload,
-              ]);
+            if (payload.sender_id !== user.id && payload.content) {
+              setProject((p) => ({
+                ...p,
+                content: payload.content,
+              }));
             }
-          },
-        );
+          } else if (msg.type === "presence") {
+            setPresence(msg.presence || []);
+          } else if (msg.type === "comment_created") {
+            setComments((c) => [...c, msg.payload]);
+          } else if (msg.type === "member_added") {
+            setMembers((m) => [...m, msg.payload]);
+          }
+        });
 
         clientRef.current = client;
 
-        client.connect(
-          localStorage.getItem("token"),
-          user,
-        );
+        client.connect(localStorage.getItem("token"), user);
       } catch (err) {
-        setError(
-          err.message ||
-            "Failed to load project details.",
-        );
+        setError(err.message || "Failed to load project details.");
       } finally {
         setLoading(false);
       }
@@ -1564,30 +1555,23 @@ ${project.papers_data
         <FadeIn>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold">
-                Project Details
-              </h1>
+              <h1 className="text-2xl font-bold">Project Details</h1>
 
               <p className="text-slate-500 mt-1">
-                Review your saved paper or proposal
-                project.
+                Review your saved paper or proposal project.
               </p>
 
               {pendingInviteToken && (
                 <div className="mt-3 p-3 bg-yellow-50 border-l-4 border-yellow-400 text-sm">
                   <div className="flex items-center justify-between">
                     <div>
-                      <strong>
-                        You were invited to this
-                        project.
-                      </strong>
+                      <strong>You were invited to this project.</strong>
 
                       <div className="mt-1">
                         Please{" "}
                         <a
                           href={`/auth/login?next=${encodeURIComponent(
-                            window.location.pathname +
-                              window.location.search,
+                            window.location.pathname + window.location.search,
                           )}`}
                           className="underline text-blue-600"
                         >
@@ -1596,8 +1580,7 @@ ${project.papers_data
                         or{" "}
                         <a
                           href={`/auth/signup?next=${encodeURIComponent(
-                            window.location.pathname +
-                              window.location.search,
+                            window.location.pathname + window.location.search,
                           )}`}
                           className="underline text-blue-600"
                         >
@@ -1615,16 +1598,12 @@ ${project.papers_data
               <Button
                 size="sm"
                 icon={RefreshCcw}
-                disabled={
-                  !project?.query ||
-                  !project?.papers_data?.length
-                }
+                disabled={!project?.query || !project?.papers_data?.length}
                 onClick={() =>
                   navigate("/gap-analysis", {
                     state: {
                       query: project?.query,
-                      papers:
-                        project?.papers_data,
+                      papers: project?.papers_data,
                     },
                   })
                 }
@@ -1637,11 +1616,7 @@ ${project.papers_data
                 variant="secondary"
                 icon={FileText}
                 disabled={!project}
-                onClick={() =>
-                  setGeneratedSummary(
-                    summarizeProject(),
-                  )
-                }
+                onClick={() => setGeneratedSummary(summarizeProject())}
               >
                 Generate Summary
               </Button>
@@ -1650,16 +1625,12 @@ ${project.papers_data
                 size="sm"
                 variant="secondary"
                 icon={FileCode}
-                disabled={
-                  !project?.query ||
-                  !project?.papers_data?.length
-                }
+                disabled={!project?.query || !project?.papers_data?.length}
                 onClick={() =>
                   navigate("/gap-analysis", {
                     state: {
                       query: project?.query,
-                      papers:
-                        project?.papers_data,
+                      papers: project?.papers_data,
                     },
                   })
                 }
@@ -1689,27 +1660,23 @@ ${project.papers_data
               </Button> */}
 
               <Button
-  size="sm"
-  variant="secondary"
-  icon={ClipboardPen}
-  disabled={
-    !project?.query ||
-    !project?.papers_data?.length
-  }
-  onClick={async () => {
-    await createProposalActivity();
+                size="sm"
+                variant="secondary"
+                icon={ClipboardPen}
+                disabled={!project?.query || !project?.papers_data?.length}
+                onClick={async () => {
+                  await createProposalActivity();
 
-    navigate("/gap-analysis", {
-      state: {
-        query: project?.query,
-        papers: project?.papers_data,
-      },
-    });
-  }}
->
-  Generate Research Proposal 
-</Button>
-
+                  navigate("/gap-analysis", {
+                    state: {
+                      query: project?.query,
+                      papers: project?.papers_data,
+                    },
+                  });
+                }}
+              >
+                Generate Research Proposal
+              </Button>
 
               <Button
                 size="sm"
@@ -1729,10 +1696,7 @@ ${project.papers_data
                 Export PDF
               </Button>
 
-              <Button
-                size="sm"
-                onClick={() => navigate(-1)}
-              >
+              <Button size="sm" onClick={() => navigate(-1)}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
@@ -1759,13 +1723,9 @@ ${project.papers_data
             <Card>
               <CardBody className="space-y-6">
                 <div>
-                  <h2 className="text-xl font-semibold">
-                    {project.title}
-                  </h2>
+                  <h2 className="text-xl font-semibold">{project.title}</h2>
 
-                  <p className="text-slate-500 mt-1">
-                    {project.description}
-                  </p>
+                  <p className="text-slate-500 mt-1">{project.description}</p>
 
                   <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-500">
                     <span className="rounded-full bg-slate-100 px-3 py-1">
@@ -1773,47 +1733,40 @@ ${project.papers_data
                     </span>
 
                     <span className="rounded-full bg-slate-100 px-3 py-1">
-                      Query:{" "}
-                      {project.query || "N/A"}
+                      Query: {project.query || "N/A"}
                     </span>
 
                     <span className="rounded-full bg-slate-100 px-3 py-1">
-                      Created{" "}
-                      {new Date(
-                        project.created_at,
-                      ).toLocaleString()}
+                      Created {new Date(project.created_at).toLocaleString()}
                     </span>
                   </div>
                 </div>
 
-                {(generatedSummary ||
-                  project.content?.abstract) && (
-                  <div>
-                    <h3 className="font-semibold">
-                      Summary / Abstract
-                    </h3>
+                {(generatedSummary || project.content?.abstract) &&
+                  !Array.isArray(project.content?.sections) && (
+                    <div>
+                      <h3 className="font-semibold">Summary / Abstract</h3>
 
-                    <p className="whitespace-pre-wrap text-slate-700 mt-2">
-                      {(
-                        generatedSummary ||
-                        project.content.abstract
-                      )?.replace(
-                        /\\n/g,
-                        "\n",
-                      )}
-                    </p>
-                  </div>
-                )}
+                      <p className="whitespace-pre-wrap text-slate-700 mt-2">
+                        {(
+                          generatedSummary || project.content.abstract
+                        )?.replace(/\\n/g, "\n")}
+                      </p>
+                    </div>
+                  )}
 
                 <div className="space-y-4">
                   <div>
                     <h3 className="font-semibold">
-                      Content
+                      {Array.isArray(project.content?.sections) ||
+                      Array.isArray(project.content?.content?.sections)
+                        ? "Paper draft"
+                        : "Content"}
                     </h3>
 
                     {renderProjectContent(
-                      editingContent ||
-                        project.content,
+                      editingContent || project.content,
+                      project.query,
                     )}
 
                     <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1873,147 +1826,120 @@ ${project.papers_data
   presence={presence}
 /> */}
 
-<CollabEditor
-  projectId={id}
-  content={project.content}
-  client={clientRef.current}
-  user={JSON.parse(
-    localStorage.getItem("user") || "{}",
-  )}
-  onSave={async ({
-    content,
-    commit_message,
-  }) => {
-    const token = localStorage.getItem("token");
+                        <CollabEditor
+                          projectId={id}
+                          content={project.content}
+                          onContentChange={setEditingContent}
+                          client={clientRef.current}
+                          user={JSON.parse(
+                            localStorage.getItem("user") || "{}",
+                          )}
+                          onSave={async ({ content, commit_message }) => {
+                            const token = localStorage.getItem("token");
 
-    // ----------------------------------------
-    // Validate commit message on frontend
-    // ----------------------------------------
+                            // ----------------------------------------
+                            // Validate commit message on frontend
+                            // ----------------------------------------
 
-    const trimmedCommitMessage =
-      String(commit_message || "").trim();
+                            const trimmedCommitMessage = String(
+                              commit_message || "",
+                            ).trim();
 
-    if (!trimmedCommitMessage) {
-      throw new Error(
-        "Please enter a commit message before saving.",
-      );
-    }
+                            if (!trimmedCommitMessage) {
+                              throw new Error(
+                                "Please enter a commit message before saving.",
+                              );
+                            }
 
-    // ----------------------------------------
-    // Save project
-    // ----------------------------------------
+                            // ----------------------------------------
+                            // Save project
+                            // ----------------------------------------
 
-    const res = await fetch(
-      `http://localhost:8000/api/v1/projects/${id}`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          content,
-          commit_message: trimmedCommitMessage,
-        }),
-      },
-    );
+                            const res = await fetch(
+                              `http://localhost:8000/api/v1/projects/${id}`,
+                              {
+                                method: "PATCH",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify({
+                                  content,
+                                  commit_message: trimmedCommitMessage,
+                                }),
+                              },
+                            );
 
-    if (!res.ok) {
-      const errorData = await res
-        .json()
-        .catch(() => ({}));
+                            if (!res.ok) {
+                              const errorData = await res
+                                .json()
+                                .catch(() => ({}));
 
-      throw new Error(
-        errorData.detail ||
-          "Failed to save project",
-      );
-    }
+                              throw new Error(
+                                errorData.detail || "Failed to save project",
+                              );
+                            }
 
-    const data = await res.json();
+                            const data = await res.json();
 
-    console.log("SAVE RESPONSE:", data);
+                            console.log("SAVE RESPONSE:", data);
 
-    // ----------------------------------------
-    // Update project content immediately
-    // ----------------------------------------
+                            // ----------------------------------------
+                            // Update project content immediately
+                            // ----------------------------------------
 
-    if (data.project) {
-      setProject((prev) => ({
-        ...prev,
-        content: data.project.content,
-        updated_at: data.project.updated_at,
-      }));
-    }
+                            if (data.project) {
+                              setProject((prev) => ({
+                                ...prev,
+                                content: data.project.content,
+                                updated_at: data.project.updated_at,
+                              }));
+                            }
 
-    // ----------------------------------------
-    // Update Version History immediately
-    // ----------------------------------------
+                            // ----------------------------------------
+                            // Update Version History immediately
+                            // ----------------------------------------
 
-    if (data.version) {
-      setNewVersion(data.version);
-    }
+                            if (data.version) {
+                              setNewVersion(data.version);
+                            }
 
-    return data;
-  }}
-  presence={presence}
-/>
-
+                            return data;
+                          }}
+                          presence={presence}
+                        />
 
                         <CommentPanel
                           projectId={id}
                           comments={comments}
-                          client={
-                            clientRef.current
-                          }
+                          client={clientRef.current}
                           user={JSON.parse(
-                            localStorage.getItem(
-                              "user",
-                            ) || "{}",
+                            localStorage.getItem("user") || "{}",
                           )}
-                          onAddComment={async (
-                            payload,
-                          ) => {
-                            const token =
-                              localStorage.getItem(
-                                "token",
-                              );
+                          onAddComment={async (payload) => {
+                            const token = localStorage.getItem("token");
 
-                            const res =
-                              await fetch(
-                                `http://localhost:8000/api/v1/projects/${id}/comments`,
-                                {
-                                  method:
-                                    "POST",
-                                  headers: {
-                                    "Content-Type":
-                                      "application/json",
-                                    Authorization: `Bearer ${token}`,
-                                  },
-                                  body: JSON.stringify(
-                                    payload,
-                                  ),
+                            const res = await fetch(
+                              `http://localhost:8000/api/v1/projects/${id}/comments`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
                                 },
-                              );
+                                body: JSON.stringify(payload),
+                              },
+                            );
 
                             if (res.ok) {
-                              const created =
-                                await res.json();
+                              const created = await res.json();
 
-                              setComments(
-                                (c) => [
-                                  ...c,
-                                  created,
-                                ],
-                              );
+                              setComments((c) => [...c, created]);
 
-                              clientRef.current?.send(
-                                {
-                                  type:
-                                    "comment_created",
-                                  payload:
-                                    created,
-                                },
-                              );
+                              clientRef.current?.send({
+                                type: "comment_created",
+                                payload: created,
+                              });
                             }
                           }}
                         />
@@ -2023,141 +1949,91 @@ ${project.papers_data
                         <TeamPanel
                           projectId={id}
                           members={members}
-                          client={
-                            clientRef.current
-                          }
+                          client={clientRef.current}
                           user={JSON.parse(
-                            localStorage.getItem(
-                              "user",
-                            ) || "{}",
+                            localStorage.getItem("user") || "{}",
                           )}
-                          onAddMember={async (
-                            payload,
-                          ) => {
-                            const token =
-                              localStorage.getItem(
-                                "token",
-                              );
+                          onAddMember={async (payload) => {
+                            const token = localStorage.getItem("token");
 
-                            const res =
-                              await fetch(
-                                `http://localhost:8000/api/v1/projects/${id}/members`,
-                                {
-                                  method:
-                                    "POST",
-                                  headers: {
-                                    "Content-Type":
-                                      "application/json",
-                                    Authorization: `Bearer ${token}`,
-                                  },
-                                  body: JSON.stringify(
-                                    payload,
-                                  ),
+                            const res = await fetch(
+                              `http://localhost:8000/api/v1/projects/${id}/members`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
                                 },
-                              );
+                                body: JSON.stringify(payload),
+                              },
+                            );
 
                             if (res.ok) {
-                              const created =
-                                await res.json();
+                              const created = await res.json();
 
-                              setMembers(
-                                (m) => [
-                                  ...m,
-                                  created,
-                                ],
-                              );
+                              setMembers((m) => [...m, created]);
 
-                              clientRef.current?.send(
-                                {
-                                  type:
-                                    "member_added",
-                                  payload:
-                                    created,
-                                },
-                              );
+                              clientRef.current?.send({
+                                type: "member_added",
+                                payload: created,
+                              });
                             }
                           }}
                         />
 
                         <VersionHistory
-  projectId={id}
-  newVersion={newVersion}
-/>
+                          projectId={id}
+                          newVersion={newVersion}
+                        />
                       </div>
                     </div>
                   </div>
 
-                  {project.papers_data?.length >
-                    0 && (
+                  {project.papers_data?.length > 0 && (
                     <div className="space-y-4">
-                      <h3 className="font-semibold">
-                        Saved Papers
-                      </h3>
+                      <h3 className="font-semibold">Saved Papers</h3>
 
                       <div className="space-y-4 mt-2">
-                        {project.papers_data.map(
-                          (paper, index) => (
-                            <Card
-                              key={index}
-                              className="border-slate-200 bg-slate-50"
-                            >
-                              <CardBody>
-                                {typeof paper ===
-                                  "string" ||
-                                typeof paper ===
-                                  "number" ? (
-                                  <p className="text-slate-700">
-                                    {String(
-                                      paper,
-                                    )}
-                                  </p>
-                                ) : (
-                                  renderProjectContent(
-                                    paper,
-                                  )
-                                )}
-                              </CardBody>
-                            </Card>
-                          ),
-                        )}
+                        {project.papers_data.map((paper, index) => (
+                          <Card
+                            key={index}
+                            className="border-slate-200 bg-slate-50"
+                          >
+                            <CardBody>
+                              {typeof paper === "string" ||
+                              typeof paper === "number" ? (
+                                <p className="text-slate-700">
+                                  {String(paper)}
+                                </p>
+                              ) : (
+                                renderProjectContent(paper)
+                              )}
+                            </CardBody>
+                          </Card>
+                        ))}
                       </div>
                     </div>
                   )}
 
-                  {project.papers_data?.length >
-                    0 && (
+                  {project.papers_data?.length > 0 && (
                     <div>
-                      <h3 className="font-semibold">
-                        Bibliography
-                      </h3>
+                      <h3 className="font-semibold">Bibliography</h3>
 
                       <ul className="mt-2 list-disc pl-5 text-slate-700 space-y-1">
-                        {project.papers_data.map(
-                          (paper, index) => (
-                            <li
-                              key={index}
-                              className="mt-1"
-                            >
-                              {makeCitationText(
-                                paper,
-                                index,
-                              )}
-                            </li>
-                          ),
-                        )}
+                        {project.papers_data.map((paper, index) => (
+                          <li key={index} className="mt-1">
+                            {makeCitationText(paper, index)}
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   )}
 
                   {project.gaps_data && (
                     <div>
-                      <h3 className="font-semibold">
-                        Gap Analysis
-                      </h3>
+                      <h3 className="font-semibold">Gap Analysis</h3>
 
-                      {renderProjectContent(
-                        project.gaps_data,
-                      )}
+                      {renderProjectContent(project.gaps_data)}
                     </div>
                   )}
                 </div>

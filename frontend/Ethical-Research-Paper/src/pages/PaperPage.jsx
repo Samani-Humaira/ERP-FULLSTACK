@@ -12,6 +12,12 @@ import {
 } from "../components/ui/animations";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 
+const normalizePaperText = (text) =>
+  String(text || "")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+
 export default function PaperPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -143,11 +149,11 @@ export default function PaperPage() {
     yPosition += getLineHeight(20) + 12;
 
     addHeading("Abstract");
-    addText(paper.abstract);
+    addText(normalizePaperText(paper.abstract));
 
     paper.sections.forEach((section) => {
       addHeading(section.title);
-      addText(section.content);
+      addText(normalizePaperText(section.content));
     });
 
     doc.save(`${paper.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.pdf`);
@@ -501,28 +507,43 @@ export default function PaperPage() {
 
         <FadeIn delay={0.15}>
           <Card>
+            <CardBody className="py-8 text-center sm:py-10">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">
+                Research paper
+              </p>
+              <h2 className="mx-auto max-w-3xl text-2xl font-bold leading-tight text-slate-900 sm:text-3xl">
+                {paper.title}
+              </h2>
+            </CardBody>
+          </Card>
+        </FadeIn>
+
+        <FadeIn delay={0.18}>
+          <Card>
             <CardHeader>
-              <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+              <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
                 Abstract
               </h2>
             </CardHeader>
             <CardBody>
-              <p className="text-slate-700 leading-relaxed">{paper.abstract}</p>
+              <p className="text-justify text-slate-700 leading-7">
+                {normalizePaperText(paper.abstract)}
+              </p>
             </CardBody>
           </Card>
         </FadeIn>
 
         {paper.sections?.map((section, i) => (
-          <FadeIn key={i} delay={0.2 + i * 0.05}>
+          <FadeIn key={i} delay={0.22 + i * 0.05}>
             <Card>
               <CardHeader>
-                <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
                   {section.title}
                 </h2>
               </CardHeader>
               <CardBody>
-                <p className="text-slate-700 whitespace-pre-line leading-relaxed">
-                  {section.content}
+                <p className="text-justify text-slate-700 whitespace-pre-line leading-7">
+                  {normalizePaperText(section.content)}
                 </p>
               </CardBody>
             </Card>

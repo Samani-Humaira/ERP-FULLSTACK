@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import random
 import re
 from typing import Any
 from uuid import UUID
@@ -112,21 +114,79 @@ async def assist_with_editing(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{settings.LLM_BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.LLM_API_KEY}"},
-                json={
-                    "model": settings.LLM_MODEL,
-                    "temperature": 0.2,
-                    "max_tokens": 1800,
-                    "response_format": {"type": "json_object"},
-                    "messages": [
-                        {"role": "system", "content": instructions},
-                        {"role": "user", "content": json.dumps(user_context, ensure_ascii=False)},
-                    ],
-                },
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0, connect=10.0)
+        ) as client:
+            request_json = {
+                "model": settings.LLM_MODEL,
+                "temperature": 0.2,
+                "max_tokens": 1800,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": json.dumps(user_context, ensure_ascii=False)},
+                ],
+            }
+            if "generativelanguage.googleapis.com" in settings.LLM_BASE_URL:
+                request_json["reasoning_effort"] = "low"
+
+            retryable_statuses = {408, 429, 500, 502, 503, 504}
+            models = [settings.LLM_MODEL]
+            fallback_models = list(
+                settings.LLM_FALLBACK_MODELS or [settings.LLM_FALLBACK_MODEL]
             )
+            if "generativelanguage.googleapis.com" in settings.LLM_BASE_URL:
+                fallback_models.extend(("gemini-3.6-flash", "gemini-3.8-flash"))
+            models.extend(
+                model for model in fallback_models if model and model not in models
+            )
+
+            for model_index, model in enumerate(models):
+                request_json["model"] = model
+                for attempt in range(3):
+                    response = await client.post(
+                        f"{settings.LLM_BASE_URL}/chat/completions",
+                        headers={"Authorization": f"Bearer {settings.LLM_API_KEY}"},
+                        json=request_json,
+                    )
+                    response_text = response.text.lower()
+                    quota_exhausted = response.status_code == 429 and any(
+                        marker in response_text
+                        for marker in ("quota", "billing", "resource_exhausted")
+                    )
+                    if (
+                        response.status_code not in retryable_statuses
+                        or attempt == 2
+                        or quota_exhausted
+                    ):
+                        break
+
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        delay = min(max(float(retry_after), 0), 30) if retry_after else min(2 ** attempt, 8)
+                    except ValueError:
+                        delay = min(2 ** attempt, 8)
+                    delay += random.uniform(0, 0.25)
+                    logger.warning(
+                        "Editor assistant provider returned HTTP %s; retrying in %.2f seconds (%s/2)",
+                        response.status_code,
+                        delay,
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(delay)
+
+                if (
+                    response.status_code not in retryable_statuses
+                    or model_index == len(models) - 1
+                ):
+                    break
+                logger.warning(
+                    "Editor assistant model %s returned HTTP %s after retries; trying fallback model %s",
+                    model,
+                    response.status_code,
+                    models[model_index + 1],
+                )
+
             response.raise_for_status()
             completion = response.json()
             raw_result = completion["choices"][0]["message"]["content"]
@@ -135,16 +195,39 @@ async def assist_with_editing(
     except httpx.HTTPStatusError as exc:
         provider_status = exc.response.status_code
         logger.warning("Editor assistant provider returned HTTP %s", provider_status)
+        try:
+            provider_error_body = exc.response.json()
+        except ValueError:
+            provider_error_body = {}
+        provider_error = (
+            provider_error_body.get("error", {})
+            if isinstance(provider_error_body, dict)
+            else {}
+        )
+        if isinstance(provider_error, str):
+            provider_message = provider_error
+        elif isinstance(provider_error, dict):
+            provider_message = provider_error.get("message")
+        else:
+            provider_message = None
+        if not isinstance(provider_message, str) and isinstance(provider_error_body, dict):
+            provider_message = provider_error_body.get("message") or provider_error_body.get("detail")
+        if not isinstance(provider_message, str):
+            provider_message = None
+        else:
+            provider_message = " ".join(provider_message.split())[:400]
         provider_guidance = {
             400: "The provider rejected the request. Check that the configured model supports chat completions and that the paper context fits its limits.",
             401: "The provider rejected the API key. Check that LLM_API_KEY is valid for the configured provider.",
             403: "The provider denied access. Check account access, project permissions, and model availability.",
             404: "The provider endpoint or model was not found. Check LLM_BASE_URL and LLM_MODEL.",
             429: "The provider rate limit or usage quota was reached. Check billing, credits, and rate limits.",
+            503: "The provider remained temporarily unavailable after retries. Check provider status and try again shortly.",
         }.get(provider_status, "Check the provider status and the configured model/API endpoint.")
+        provider_detail = f" Provider message: {provider_message}" if provider_message else ""
         raise HTTPException(
-            status_code=502,
-            detail=f"AI provider returned HTTP {provider_status}. {provider_guidance}",
+            status_code=503 if provider_status == 503 else 502,
+            detail=f"AI provider returned HTTP {provider_status}. {provider_guidance}{provider_detail}",
         )
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
         logger.exception("Editor assistant provider request failed: %s", exc)

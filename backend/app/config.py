@@ -20,6 +20,15 @@ class Settings:
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip()
     LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini").strip()
+    LLM_FALLBACK_MODEL: str = os.getenv(
+        "LLM_FALLBACK_MODEL",
+        "gemini-3.7-flash" if "generativelanguage.googleapis.com" in LLM_BASE_URL else "",
+    ).strip()
+    LLM_FALLBACK_MODELS: list[str] = [
+        model.strip()
+        for model in os.getenv("LLM_FALLBACK_MODELS", "").split(",")
+        if model.strip()
+    ]
 
     # SMTP / email settings for sending invites
     SMTP_HOST: str = os.getenv("SMTP_HOST", "").strip()

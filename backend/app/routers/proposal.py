@@ -1,6 +1,11 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
+from app.database import get_db
+from app.models.activity import Activity, ActivityType
+from app.models.user import User
 from app.schemas import ProposalRequest, ProposalResponse
 from app.services.proposal_generator import generate_proposal
 
@@ -14,7 +19,11 @@ router = APIRouter()
     response_model=ProposalResponse,
     summary="Generate research proposal from gap analysis",
 )
-async def generate_research_proposal(request: ProposalRequest) -> ProposalResponse:
+async def generate_research_proposal(
+    request: ProposalRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProposalResponse:
     """
     Generate a complete research proposal based on gap analysis results.
 
@@ -44,10 +53,23 @@ async def generate_research_proposal(request: ProposalRequest) -> ProposalRespon
 
         proposal = generate_proposal(request)
 
+        db.add(
+            Activity(
+                user_id=current_user.id,
+                type=ActivityType.PROPOSAL.value,
+                title=request.query,
+            )
+        )
+        db.commit()
+
         logger.info(f"Proposal generated successfully: '{proposal.title}'")
         return proposal
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
+        db.rollback()
         logger.error(f"Proposal generation failed: {e}")
         raise HTTPException(
             status_code=500,

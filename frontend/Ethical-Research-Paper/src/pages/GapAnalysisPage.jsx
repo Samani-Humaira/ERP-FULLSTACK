@@ -6,6 +6,7 @@ import {
   Target,
   ClipboardPen,
   FileCode,
+  GitCompareArrows,
 } from "lucide-react";
 import Card, { CardBody, CardHeader } from "../components/ui/Card";
 import Button from "../components/ui/Button";
@@ -109,44 +110,75 @@ export default function GapAnalysisPage() {
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <FadeIn>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800">
-                Research Gap Analysis
-              </h1>
-              <p className="text-slate-500 mt-1">
-                AI-identified gaps and opportunities from analyzed papers
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                icon={ClipboardPen}
-                onClick={() =>
-                  navigate("/proposal", {
-                    state: {
-                      query,
-                      papers,
-                      themes,
-                      limitations,
-                      gaps,
-                    },
-                  })
-                }
-              >
-                Generate Research Proposal
-              </Button>
+          <div className="relative isolate overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 p-6 text-white shadow-lg shadow-indigo-950/10 sm:p-8">
+            <div className="pointer-events-none absolute -right-12 -top-24 h-64 w-64 rounded-full bg-violet-400/20 blur-3xl" />
+            <div className="relative flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
+              <div className="max-w-2xl">
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[10px] font-semibold tracking-wider text-indigo-100">
+                  <GitCompareArrows className="h-3.5 w-3.5" />
+                  LITERATURE SYNTHESIS
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                  Research gap analysis
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-indigo-100/75">
+                  Patterns, limitations, and opportunities emerging from your
+                  selected literature.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {[
+                    [papers.length, "papers reviewed"],
+                    [themes.length, "themes"],
+                    [limitations.length, "limitations"],
+                    [gaps.length, "opportunities"],
+                  ].map(([count, label]) => (
+                    <span
+                      key={label}
+                      className="rounded-xl border border-white/10 bg-white/[0.08] px-3 py-2"
+                    >
+                      <span className="text-sm font-semibold text-white">
+                        {count}
+                      </span>
+                      <span className="ml-1.5 text-[11px] text-indigo-100/65">
+                        {label}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="relative flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  icon={ClipboardPen}
+                  className="bg-white text-indigo-950 shadow-none hover:bg-indigo-50"
+                  onClick={() =>
+                    navigate("/proposal", {
+                      state: {
+                        query,
+                        papers,
+                        themes,
+                        limitations,
+                        gaps,
+                      },
+                    })
+                  }
+                >
+                  Generate Research Proposal
+                </Button>
 
-              <Button
-                variant="secondary"
-                icon={FileCode}
-                onClick={() =>
-                  navigate("/paper", {
-                    state: { query, papers, themes, limitations, gaps },
-                  })
-                }
-              >
-                Generate Full Research Paper
-              </Button>
+                <Button
+                  variant="secondary"
+                  icon={FileCode}
+                  className="border-white/20 bg-white/10 text-white shadow-none hover:bg-white/15"
+                  onClick={() =>
+                    navigate("/paper", {
+                      state: { query, papers, themes, limitations, gaps },
+                    })
+                  }
+                >
+                  Generate Full Research Paper
+                </Button>
+              </div>
             </div>
           </div>
         </FadeIn>

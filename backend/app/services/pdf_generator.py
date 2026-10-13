@@ -1,171 +1,274 @@
-"""
-PDF Generator Service
-====================
-Uses WeasyPrint to generate professional PDFs from paper content with proper margins, wrapping, page breaks.
-"""
+"""Generate publication-style academic PDFs from generated paper content."""
 
-from typing import Dict
-from weasyprint import HTML
-import io
-from app.schemas import PaperResponse
 import base64
+import html
+import re
+from io import BytesIO
+from typing import Iterable
+
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import (
+    BaseDocTemplate,
+    Frame,
+    FrameBreak,
+    NextPageTemplate,
+    PageTemplate,
+    Paragraph,
+    Spacer,
+)
+
+from app.schemas import PaperResponse
+
+
+PAGE_WIDTH, PAGE_HEIGHT = A4
+LEFT_MARGIN = RIGHT_MARGIN = 0.68 * inch
+TOP_MARGIN = 0.55 * inch
+BOTTOM_MARGIN = 0.62 * inch
+COLUMN_GAP = 0.25 * inch
+HEADER_HEIGHT = 2.95 * inch
+
+
+def _styles() -> dict[str, ParagraphStyle]:
+    """Create consistent Times-style academic typography."""
+    return {
+        "title": ParagraphStyle(
+            "PaperTitle",
+            fontName="Times-Bold",
+            fontSize=18,
+            leading=21,
+            alignment=TA_CENTER,
+            spaceAfter=9,
+        ),
+        "abstract_heading": ParagraphStyle(
+            "AbstractHeading",
+            fontName="Times-BoldItalic",
+            fontSize=9,
+            leading=11,
+            alignment=TA_CENTER,
+            spaceAfter=4,
+        ),
+        "abstract": ParagraphStyle(
+            "Abstract",
+            fontName="Times-Roman",
+            fontSize=8.5,
+            leading=11,
+            alignment=TA_JUSTIFY,
+            spaceAfter=5,
+        ),
+        "section": ParagraphStyle(
+            "SectionHeading",
+            fontName="Times-Bold",
+            fontSize=9.5,
+            leading=11,
+            alignment=TA_CENTER,
+            spaceBefore=9,
+            spaceAfter=4,
+            keepWithNext=True,
+        ),
+        "body": ParagraphStyle(
+            "BodyTextAcademic",
+            fontName="Times-Roman",
+            fontSize=9,
+            leading=11.5,
+            alignment=TA_JUSTIFY,
+            firstLineIndent=9,
+            spaceAfter=5,
+            allowWidows=0,
+            allowOrphans=0,
+        ),
+        "reference": ParagraphStyle(
+            "Reference",
+            fontName="Times-Roman",
+            fontSize=8,
+            leading=9.5,
+            alignment=TA_LEFT,
+            leftIndent=12,
+            firstLineIndent=-12,
+            spaceAfter=4,
+        ),
+    }
+
+
+def _page_number(canvas: Canvas, doc: BaseDocTemplate) -> None:
+    """Draw a discreet centered page number in the footer."""
+    canvas.saveState()
+    canvas.setFont("Times-Roman", 8)
+    canvas.setFillColorRGB(0.35, 0.35, 0.35)
+    canvas.drawCentredString(PAGE_WIDTH / 2, 0.34 * inch, str(doc.page))
+    canvas.restoreState()
+
+
+def _make_frames() -> tuple[list[Frame], list[Frame]]:
+    """Create a full-width title frame and IEEE-like body columns."""
+    content_width = PAGE_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
+    column_width = (content_width - COLUMN_GAP) / 2
+    header_bottom = PAGE_HEIGHT - TOP_MARGIN - HEADER_HEIGHT
+    first_column_height = header_bottom - BOTTOM_MARGIN - 12
+
+    header = Frame(
+        LEFT_MARGIN,
+        header_bottom,
+        content_width,
+        HEADER_HEIGHT,
+        leftPadding=2,
+        rightPadding=2,
+        topPadding=2,
+        bottomPadding=2,
+        id="header",
+    )
+    first_left = Frame(
+        LEFT_MARGIN,
+        BOTTOM_MARGIN,
+        column_width,
+        first_column_height,
+        leftPadding=2,
+        rightPadding=2,
+        topPadding=2,
+        bottomPadding=2,
+        id="first-left",
+    )
+    first_right = Frame(
+        LEFT_MARGIN + column_width + COLUMN_GAP,
+        BOTTOM_MARGIN,
+        column_width,
+        first_column_height,
+        leftPadding=2,
+        rightPadding=2,
+        topPadding=2,
+        bottomPadding=2,
+        id="first-right",
+    )
+
+    body_height = PAGE_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN
+    body_left = Frame(
+        LEFT_MARGIN,
+        BOTTOM_MARGIN,
+        column_width,
+        body_height,
+        leftPadding=2,
+        rightPadding=2,
+        topPadding=2,
+        bottomPadding=2,
+        id="body-left",
+    )
+    body_right = Frame(
+        LEFT_MARGIN + column_width + COLUMN_GAP,
+        BOTTOM_MARGIN,
+        column_width,
+        body_height,
+        leftPadding=2,
+        rightPadding=2,
+        topPadding=2,
+        bottomPadding=2,
+        id="body-right",
+    )
+    return [header, first_left, first_right], [body_left, body_right]
+
+
+def _paragraphs(text: str, style: ParagraphStyle) -> Iterable[Paragraph]:
+    """Split plain text into safely escaped, typeset paragraphs."""
+    for block in re.split(r"\n\s*\n", text.strip()):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if lines:
+            safe_text = "<br/>".join(html.escape(line) for line in lines)
+            yield Paragraph(safe_text, style)
+
+
+def _reference_paragraphs(text: str, style: ParagraphStyle) -> Iterable[Paragraph]:
+    """Render references with IEEE-like numbering and hanging indents."""
+    next_number = 1
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.casefold().rstrip(":") in {"key references", "references", "bibliography"}:
+            continue
+        match = re.match(r"^\[(\d+)\]\s*(.*)$|^(\d+)[.)]\s+(.*)$", line)
+        if match:
+            number = match.group(1) or match.group(3)
+            reference = match.group(2) or match.group(4)
+            next_number = int(number) + 1
+        else:
+            number, reference = str(next_number), line
+            next_number += 1
+        yield Paragraph(f"[{number}] {html.escape(reference)}", style)
+
+
+def _section_heading(title: str, index: int, style: ParagraphStyle, references: bool) -> Paragraph:
+    """Format section headings with IEEE-style Roman numerals."""
+    if references:
+        heading = html.escape(title.upper())
+    else:
+        heading = f"{_to_roman(index)}. {html.escape(title.upper())}"
+    return Paragraph(heading, style)
+
+
+def _to_roman(number: int) -> str:
+    """Convert a positive section number to an uppercase Roman numeral."""
+    values = (
+        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+    )
+    result = []
+    for value, numeral in values:
+        while number >= value:
+            result.append(numeral)
+            number -= value
+    return "".join(result)
 
 
 def generate_pdf(paper: PaperResponse) -> bytes:
-    """
-    Generate PDF bytes from PaperResponse using WeasyPrint.
-    Returns PDF bytes for API response.
-    """
-    # Build HTML with CSS for academic layout
-    html_content = _build_html(paper)
-    
-    # Generate PDF with proper A4 margins/page settings
-    html = HTML(string=html_content)
-    pdf_bytes = html.write_pdf(
-        stylesheets=None,  # Inline CSS handles everything
-        margin_top="1in",
-        margin_right="1in",
-        margin_bottom="1in",
-        margin_left="1in"
+    """Generate an A4 academic PDF with a full-width abstract and justified columns."""
+    buffer = BytesIO()
+    doc = BaseDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=LEFT_MARGIN,
+        rightMargin=RIGHT_MARGIN,
+        topMargin=TOP_MARGIN,
+        bottomMargin=BOTTOM_MARGIN,
+        title=paper.title,
+        author="",
     )
-    
-    return pdf_bytes
+    first_frames, body_frames = _make_frames()
+    doc.addPageTemplates(
+        [
+            PageTemplate(id="first", frames=first_frames, onPage=_page_number),
+            PageTemplate(id="body", frames=body_frames, onPage=_page_number),
+        ]
+    )
+
+    styles = _styles()
+    story = [
+        Paragraph(html.escape(paper.title), styles["title"]),
+        Spacer(1, 8),
+        Paragraph("ABSTRACT", styles["abstract_heading"]),
+        *_paragraphs(paper.abstract, styles["abstract"]),
+        Spacer(1, 4),
+        FrameBreak(),
+        NextPageTemplate("body"),
+    ]
+
+    section_number = 0
+    for section in paper.sections:
+        is_references = section.title.strip().casefold() in {"references", "bibliography"}
+        if not is_references:
+            section_number += 1
+        story.append(_section_heading(section.title, section_number, styles["section"], is_references))
+        if is_references:
+            story.extend(_reference_paragraphs(section.content, styles["reference"]))
+        else:
+            story.extend(_paragraphs(section.content, styles["body"]))
+
+    doc.build(story)
+    return buffer.getvalue()
 
 
 def generate_pdf_base64(paper: PaperResponse) -> str:
-    """Generate PDF and return base64 for frontend download."""
-    pdf_bytes = generate_pdf(paper)
-    return base64.b64encode(pdf_bytes).decode('utf-8')
-
-
-def _build_html(paper: PaperResponse) -> str:
-    """Build full HTML document with embedded CSS."""
-    css = """
-    @page {
-        size: A4;
-        margin: 1in;
-        @bottom-center {
-            content: counter(page) ' of ' counter(pages);
-            font-size: 10pt;
-            color: #666;
-        }
-    }
-    body {
-        font-family: 'Times New Roman', Times, serif;
-        font-size: 10pt;
-        line-height: 1.35;
-        color: #000;
-        hyphens: auto;
-        -webkit-hyphens: auto;
-        column-width: 3.25in;
-        column-gap: 0.25in;
-        column-rule: 0.5pt solid #000;
-        orphans: 4;
-        widows: 4;
-        hanging-punctuation: first;
-    }
-    h1.title {
-        font-size: 18pt;
-        font-weight: bold;
-        text-align: center;
-        margin: 20pt 0 10pt 0;
-        text-transform: uppercase;
-    }
-    .authors {
-        text-align: center;
-        font-size: 11pt;
-        margin-bottom: 20pt;
-        font-style: italic;
-    }
-    .abstract {
-        background: #f9f9f9;
-        padding: 15pt;
-        border-left: 4pt solid #007acc;
-        margin: 20pt 0;
-    }
-    .abstract h2 {
-        font-size: 14pt;
-        margin-top: 0;
-        color: #007acc;
-    }
-    h2.section, h3 {
-        column-span: all;
-        break-before: avoid;
-        break-after: avoid;
-        margin-top: 18pt;
-        margin-bottom: 6pt;
-        font-weight: bold;
-    }
-    h2.section {
-        font-size: 11pt;
-        text-transform: uppercase;
-        letter-spacing: 0.5pt;
-    }
-    h3 {
-        font-size: 10pt;
-    }
-    h3 {
-        font-size: 12pt;
-        margin-top: 20pt;
-        margin-bottom: 8pt;
-    }
-    p {
-        margin-bottom: 12pt;
-        text-align: justify;
-        hyphens: auto;
-    }
-    ul {
-        margin-bottom: 12pt;
-    }
-    li {
-        margin-bottom: 6pt;
-    }
-    .references {
-        font-size: 10pt;
-    }
-    .references ol {
-        padding-left: 20pt;
-    }
-    """
-
-    # Escape content for HTML
-    def escape_html(text: str) -> str:
-        return (text.replace('&', '&amp;')
-                     .replace('<', '<')
-                     .replace('>', '>')
-
-    sections_html = ""
-    for section in paper.sections:
-        sections_html += f'<h2 class="section">{escape_html(section.title)}</h2>'
-        sections_html += f'<p>{escape_html(section.content).replace("\\n", "<br>")}</p>'
-
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{escape_html(paper.title)}</title>
-    <style>{css}</style>
-</head>
-<body>
-    <h1 class="title">{escape_html(paper.title)}</h1>
-    <div class="authors">
-        AI Research Assistant<sup>*</sup><br>
-        Department of Computer Science, University of Technology<br>
-        *Corresponding author: ai-research@example.com
-    </div>
-    
-    <div class="abstract">
-        <h2>Abstract</h2>
-        <p>{escape_html(paper.abstract).replace("\\n", "<br>")}</p>
-    </div>
-    
-    {sections_html}
-    
-    <div class="references">
-        <h2>References</h2>
-        <p>References formatted according to IEEE style based on analyzed literature.</p>
-    </div>
-</body>
-</html>"""
-    
-    return html
+    """Generate a PDF and return it as a base64-encoded string."""
+    return base64.b64encode(generate_pdf(paper)).decode("utf-8")

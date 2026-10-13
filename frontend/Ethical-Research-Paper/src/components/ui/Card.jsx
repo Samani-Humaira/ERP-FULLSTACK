@@ -17,7 +17,7 @@ export default function Card({
   return (
     <Component
       className={`
-        bg-white/80 backdrop-blur-sm rounded-xl border border-slate-200/80 shadow-sm
+        bg-white/85 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_2px_12px_-5px_rgba(15,23,42,0.16)]
         ${hover ? "cursor-pointer" : ""}
         ${className}
       `}

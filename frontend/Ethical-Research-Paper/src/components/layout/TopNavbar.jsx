@@ -235,9 +235,8 @@
 //   );
 // }
 
-
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Menu,
@@ -246,6 +245,7 @@ import {
   Settings,
   LogOut,
   Bell,
+  Search,
 } from "lucide-react";
 
 export default function TopNavbar({ onMenuClick }) {
@@ -256,6 +256,7 @@ export default function TopNavbar({ onMenuClick }) {
   const dropdownRef = useRef(null);
   const notesRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Get user from localStorage saved during login
   const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -268,28 +269,36 @@ export default function TopNavbar({ onMenuClick }) {
     .toUpperCase()
     .slice(0, 2);
 
+  const pageTitle =
+    location.pathname.startsWith("/projects/") &&
+    location.pathname !== "/projects"
+      ? "Project details"
+      : {
+          "/dashboard": "Dashboard",
+          "/research": "Start research",
+          "/papers": "Research papers",
+          "/projects": "My projects",
+          "/gap-analysis": "Gap analysis",
+          "/proposal": "Research proposal",
+          "/paper": "Research paper",
+          "/profile": "Your profile",
+        }[location.pathname] || "Research workspace";
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setDropdownOpen(false);
       }
 
-      if (
-        notesRef.current &&
-        !notesRef.current.contains(e.target)
-      ) {
+      if (notesRef.current && !notesRef.current.contains(e.target)) {
         setNotesOpen(false);
       }
     }
 
     document.addEventListener("mousedown", handleClickOutside);
 
-    return () =>
-      document.removeEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   // Notifications
@@ -349,23 +358,36 @@ export default function TopNavbar({ onMenuClick }) {
   };
 
   return (
-    <header className="h-16 bg-white/80 backdrop-blur-xl border-b border-slate-200/80 flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
+    <header className="sticky top-0 z-30 flex h-[76px] items-center justify-between border-b border-slate-200/70 bg-white/85 px-4 backdrop-blur-2xl sm:px-6 lg:px-8">
       {/* Left */}
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onMenuClick}
-          className="lg:hidden p-2 rounded-lg hover:bg-slate-100 cursor-pointer flex-shrink-0"
+          aria-label="Open navigation menu"
+          className="lg:hidden p-2 rounded-xl hover:bg-slate-100 cursor-pointer flex-shrink-0"
         >
           <Menu className="h-5 w-5 text-slate-600" />
         </button>
 
-        <h1 className="text-lg font-semibold text-slate-800 hidden sm:block truncate">
-          Ethical Research Assistant
-        </h1>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-slate-900 sm:text-base">
+            {pageTitle}
+          </p>
+          <p className="hidden text-xs text-slate-400 sm:block">
+            Ethical Research Assistant
+          </p>
+        </div>
       </div>
 
       {/* Right */}
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        <Link
+          to="/research"
+          className="hidden items-center gap-2 rounded-xl bg-gradient-to-r from-primary-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-primary-600/15 hover:-translate-y-0.5 hover:shadow-lg sm:inline-flex"
+        >
+          <Search className="h-4 w-4" />
+          <span>New research</span>
+        </Link>
         {/* Notifications */}
         <div className="relative" ref={notesRef}>
           <button
@@ -373,7 +395,7 @@ export default function TopNavbar({ onMenuClick }) {
               setNotesOpen((s) => !s);
               setDropdownOpen(false);
             }}
-            className="relative p-2.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+            className="relative rounded-xl p-2.5 hover:bg-slate-100 transition-colors cursor-pointer"
             aria-label="Notifications"
           >
             <Bell className="h-5 w-5 text-slate-600" />
@@ -417,9 +439,7 @@ export default function TopNavbar({ onMenuClick }) {
                   {notifications.length === 0 && (
                     <li className="px-3 py-6 text-center">
                       <Bell className="h-8 w-8 mx-auto text-slate-300 mb-2" />
-                      <p className="text-xs text-slate-500">
-                        No notifications 
-                      </p>
+                      <p className="text-xs text-slate-500">No notifications</p>
                     </li>
                   )}
 
@@ -441,18 +461,14 @@ export default function TopNavbar({ onMenuClick }) {
                           {n.type === "invite" && (
                             <div className="mt-2 flex items-center gap-2 flex-wrap">
                               <button
-                                onClick={() =>
-                                  respondToInvite(n, "accept")
-                                }
+                                onClick={() => respondToInvite(n, "accept")}
                                 className="px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs font-medium transition-colors"
                               >
                                 Accept
                               </button>
 
                               <button
-                                onClick={() =>
-                                  respondToInvite(n, "reject")
-                                }
+                                onClick={() => respondToInvite(n, "reject")}
                                 className="px-2.5 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md text-xs font-medium transition-colors"
                               >
                                 Reject

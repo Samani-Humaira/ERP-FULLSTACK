@@ -7,9 +7,12 @@ import {
   GitCompareArrows,
   ClipboardPen,
   ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  Sparkles,
+  FileSearch,
 } from "lucide-react";
 import Card, { CardBody } from "../components/ui/Card";
-import Button from "../components/ui/Button";
 import {
   PageTransition,
   FadeIn,
@@ -18,8 +21,6 @@ import {
   AnimatedCounter,
 } from "../components/ui/animations";
 import { getDashboard } from "../api/activity";
-
-import CollaborationPanel from "../components/collaboration/collaborationPanel";
 
 // Map activity type from API to icon + label
 const ACTIVITY_META = {
@@ -91,16 +92,126 @@ export default function DashboardPage() {
   return (
     <PageTransition>
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Welcome */}
+        {/* Research hero */}
         <FadeIn>
-          <h1 className="text-2xl font-bold text-slate-800">
-            Welcome back, {firstName} 👋
-          </h1>
-          <p className="text-slate-500 mt-1">
-            Continue your research or start something new.
-          </p>
-        </FadeIn>
+          <section className="relative isolate overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 px-6 py-8 text-white shadow-xl shadow-indigo-950/15 sm:px-9 sm:py-10 lg:px-12 lg:py-12">
+            <div className="pointer-events-none absolute -right-20 -top-28 h-80 w-80 rounded-full bg-violet-400/20 blur-3xl" />
+            <div className="pointer-events-none absolute bottom-[-7rem] left-[32%] h-64 w-64 rounded-full bg-blue-400/15 blur-3xl" />
+            <div className="relative grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="max-w-2xl">
+                <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 text-xs font-medium tracking-wide text-indigo-100 backdrop-blur-sm">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                  YOUR RESEARCH WORKSPACE
+                </div>
+                <p className="mb-2 text-sm font-medium text-indigo-200">
+                  Welcome back, {firstName}
+                </p>
+                <h1 className="max-w-xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl lg:text-[3.25rem]">
+                  From big questions to{" "}
+                  <span className="bg-gradient-to-r from-cyan-200 via-blue-200 to-violet-200 bg-clip-text text-transparent">
+                    research breakthroughs.
+                  </span>
+                </h1>
+                <p className="mt-5 max-w-lg text-sm leading-6 text-indigo-100/80 sm:text-base sm:leading-7">
+                  Discover the literature, uncover research gaps, and shape your
+                  ideas into a paper—all in one focused workspace.
+                </p>
+                <div className="mt-7 flex flex-wrap gap-3">
+                  <Link
+                    to="/research"
+                    className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-indigo-950 shadow-lg shadow-black/10 hover:-translate-y-0.5 hover:bg-indigo-50"
+                  >
+                    <Search className="h-4 w-4" />
+                    Start researching
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    to="/projects"
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
+                  >
+                    View my projects
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+                <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-indigo-100/70">
+                  <span>Literature discovery</span>
+                  <span>Research gap analysis</span>
+                  <span>Paper generation</span>
+                </div>
+              </div>
 
+              <div className="relative mx-auto w-full max-w-md lg:ml-auto">
+                <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-br from-cyan-400/20 to-violet-400/20 blur-2xl" />
+                <div className="relative rounded-3xl border border-white/15 bg-white/[0.09] p-4 shadow-2xl shadow-black/20 backdrop-blur-xl sm:p-5">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-300/25 to-violet-300/25 text-cyan-100">
+                        <BookOpen className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          Research workflow
+                        </p>
+                        <p className="text-xs text-indigo-100/60">
+                          From question to insight
+                        </p>
+                      </div>
+                    </div>
+                    <Sparkles className="h-4 w-4 text-amber-200" />
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/25 p-3.5">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-400/15 text-blue-200">
+                        <FileSearch className="h-4 w-4" />
+                      </span>
+                      <span className="flex-1">
+                        <span className="block text-xs font-semibold text-white">
+                          Discover the literature
+                        </span>
+                        <span className="mt-1 block text-[10px] text-indigo-100/60">
+                          Find relevant papers and sources
+                        </span>
+                      </span>
+                      <span className="text-[10px] font-medium text-cyan-200">
+                        01
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/25 p-3.5">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-400/15 text-violet-200">
+                        <BarChart3 className="h-4 w-4" />
+                      </span>
+                      <span className="flex-1">
+                        <span className="block text-xs font-semibold text-white">
+                          Reveal research gaps
+                        </span>
+                        <span className="mt-1 block text-[10px] text-indigo-100/60">
+                          Spot opportunities for new work
+                        </span>
+                      </span>
+                      <span className="text-[10px] font-medium text-violet-200">
+                        02
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 rounded-2xl border border-indigo-200/15 bg-gradient-to-r from-indigo-400/15 to-violet-400/15 p-3.5">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-amber-200">
+                        <Sparkles className="h-4 w-4" />
+                      </span>
+                      <span className="flex-1">
+                        <span className="block text-xs font-semibold text-white">
+                          Build your paper
+                        </span>
+                        <span className="mt-1 block text-[10px] text-indigo-100/60">
+                          Turn insights into a structured draft
+                        </span>
+                      </span>
+                      <ArrowUpRight className="h-4 w-4 text-indigo-100/70" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </FadeIn>
 
         {/* <CollaborationPanel
   projectId={project.id}

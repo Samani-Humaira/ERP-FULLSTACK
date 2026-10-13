@@ -11,12 +11,40 @@ import {
   StaggerItem,
 } from "../components/ui/animations";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
+import { buildAcademicLatex } from "../utils/academicLatex";
 
 const normalizePaperText = (text) =>
   String(text || "")
     .replace(/\\n/g, "\n")
     .replace(/\r\n?/g, "\n")
     .trim();
+
+const toRomanNumeral = (value) => {
+  const numerals = [
+    [1000, "M"],
+    [900, "CM"],
+    [500, "D"],
+    [400, "CD"],
+    [100, "C"],
+    [90, "XC"],
+    [50, "L"],
+    [40, "XL"],
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
+  ];
+  let number = value;
+  let result = "";
+  numerals.forEach(([amount, numeral]) => {
+    while (number >= amount) {
+      result += numeral;
+      number -= amount;
+    }
+  });
+  return result;
+};
 
 export default function PaperPage() {
   const location = useLocation();
@@ -110,51 +138,285 @@ export default function PaperPage() {
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
-    const maxWidth = pageWidth - margin * 2;
-    let yPosition = margin;
-    const getLineHeight = (fontSize) => Math.round(fontSize * 1.4);
+    const margin = 52;
+    const bottomLimit = pageHeight - 46;
+    const columnGap = 22;
+    const columnWidth = (pageWidth - margin * 2 - columnGap) / 2;
+    const fullWidth = pageWidth - margin * 2;
+    let y = 48;
+    let column = 0;
+    let firstColumnTop = y;
 
-    const addText = (text, fontSize = 11, indent = 0) => {
-      doc.setFontSize(fontSize);
-      doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(text || "", maxWidth - indent);
-      const x = margin + indent;
-      const totalHeight = lines.length * getLineHeight(fontSize);
+    const wrapText = (text, maxWidth) => {
+      const words = String(text || "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const lines = [];
+      let line = "";
 
-      if (yPosition + totalHeight > pageHeight - margin) {
-        doc.addPage();
-        yPosition = margin;
-      }
-      doc.text(lines, x, yPosition, { baseline: "top" });
-      yPosition += totalHeight + 8;
+      words.forEach((word) => {
+        if (doc.getTextWidth(word) > maxWidth) {
+          if (line) lines.push(line);
+          line = "";
+          let chunk = "";
+          Array.from(word).forEach((character) => {
+            const candidate = chunk + character;
+            if (chunk && doc.getTextWidth(candidate) > maxWidth) {
+              lines.push(chunk);
+              chunk = character;
+            } else {
+              chunk = candidate;
+            }
+          });
+          line = chunk;
+          return;
+        }
+        const candidate = line ? `${line} ${word}` : word;
+        if (line && doc.getTextWidth(candidate) > maxWidth) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = candidate;
+        }
+      });
+
+      if (line) lines.push(line);
+      return lines;
     };
 
-    const addHeading = (text) => {
-      const fontSize = 14;
-      const titleHeight = getLineHeight(fontSize) + 8;
-      if (yPosition + titleHeight > pageHeight - margin) {
-        doc.addPage();
-        yPosition = margin;
+    const drawJustifiedLine = (text, x, baseline, width, justify) => {
+      const words = text.split(/\s+/).filter(Boolean);
+      if (!justify || words.length < 2) {
+        doc.text(text, x, baseline);
+        return;
       }
-      doc.setFontSize(fontSize);
-      doc.setFont("helvetica", "bold");
-      doc.text(text, margin, yPosition, { baseline: "top" });
-      yPosition += titleHeight;
+      const wordsWidth = words.reduce(
+        (total, word) => total + doc.getTextWidth(word),
+        0,
+      );
+      const gap = (width - wordsWidth) / (words.length - 1);
+      let currentX = x;
+      words.forEach((word) => {
+        doc.text(word, currentX, baseline);
+        currentX += doc.getTextWidth(word) + gap;
+      });
     };
 
-    doc.setFontSize(20);
-    doc.setFont("helvetica", "bold");
-    doc.text(paper.title, margin, yPosition);
-    yPosition += getLineHeight(20) + 12;
+    const addPage = () => {
+      doc.addPage();
+      y = 48;
+      column = 0;
+    };
 
-    addHeading("Abstract");
-    addText(normalizePaperText(paper.abstract));
+    const nextColumn = () => {
+      if (column === 0) {
+        column = 1;
+        y = firstColumnTop;
+      } else {
+        addPage();
+      }
+    };
 
-    paper.sections.forEach((section) => {
-      addHeading(section.title);
-      addText(normalizePaperText(section.content));
+    const addFullWidthParagraphs = (text, fontSize, leading) => {
+      doc.setFont("times", "normal");
+      doc.setFontSize(fontSize);
+      const paragraphs = normalizePaperText(text)
+        .split(/\n\s*\n+/)
+        .filter(Boolean);
+      paragraphs.forEach((paragraph) => {
+        const lines = wrapText(paragraph.replace(/\s*\n\s*/g, " "), fullWidth);
+        if (y + Math.min(lines.length, 2) * leading > bottomLimit) addPage();
+        lines.forEach((line, index) => {
+          if (y + leading > bottomLimit) addPage();
+          drawJustifiedLine(
+            line,
+            margin,
+            y,
+            fullWidth,
+            index < lines.length - 1,
+          );
+          y += leading;
+        });
+        y += 4;
+      });
+    };
+
+    const addColumnParagraph = (
+      text,
+      { fontSize = 9, leading = 12, indent = 11, justify = true } = {},
+    ) => {
+      doc.setFont("times", "normal");
+      doc.setFontSize(fontSize);
+      const lines = wrapText(
+        text.replace(/\s*\n\s*/g, " "),
+        columnWidth - indent,
+      );
+      if (y + Math.min(lines.length, 2) * leading > bottomLimit) nextColumn();
+      lines.forEach((line, index) => {
+        if (y + leading > bottomLimit) nextColumn();
+        const lineIndent = index === 0 ? indent : 0;
+        drawJustifiedLine(
+          line,
+          margin + (column === 1 ? columnWidth + columnGap : 0) + lineIndent,
+          y,
+          columnWidth - lineIndent,
+          justify && index < lines.length - 1,
+        );
+        y += leading;
+      });
+      y += 4;
+    };
+
+    const addColumnListItem = (marker, text) => {
+      const fontSize = 9;
+      const leading = 12;
+      const hangingIndent =
+        marker === "•" ? 15 : doc.getTextWidth(`${marker} `);
+      doc.setFont("times", "normal");
+      doc.setFontSize(fontSize);
+      const lines = wrapText(text, columnWidth - hangingIndent);
+      if (y + Math.min(lines.length, 2) * leading > bottomLimit) nextColumn();
+
+      lines.forEach((line, index) => {
+        if (y + leading > bottomLimit) nextColumn();
+        const x = margin + (column === 1 ? columnWidth + columnGap : 0);
+        if (index === 0) {
+          if (marker === "•") {
+            doc.text("•", x + 2, y);
+            doc.text(line, x + hangingIndent, y);
+          } else {
+            doc.text(`${marker} `, x, y);
+            doc.text(line, x + hangingIndent, y);
+          }
+        } else {
+          doc.text(line, x + hangingIndent, y);
+        }
+        y += leading;
+      });
+      y += 2;
+    };
+
+    const addSectionContent = (content) => {
+      const blocks = normalizePaperText(content)
+        .split(/\n\s*\n+/)
+        .map((block) => block.replace(/\s*\n\s*/g, " ").trim())
+        .filter(Boolean);
+      const listMarker = /(^|\s)(\d{1,2}[.)]|[•●▪◦])\s+/g;
+
+      blocks.forEach((block) => {
+        const markers = [...block.matchAll(listMarker)];
+        const beginsWithListMarker = markers[0]?.index === 0;
+        if (markers.length < 2 && !beginsWithListMarker) {
+          addColumnParagraph(block);
+          return;
+        }
+
+        let precedingText = block.slice(0, markers[0].index).trim();
+        if (precedingText) addColumnParagraph(precedingText);
+
+        markers.forEach((match, index) => {
+          const itemStart = match.index + match[0].length;
+          const itemEnd = markers[index + 1]?.index ?? block.length;
+          const itemText = block.slice(itemStart, itemEnd).trim();
+          if (!itemText) return;
+          const marker = /^[•●▪◦]$/.test(match[2])
+            ? "•"
+            : match[2].replace(/[.)]$/, "");
+          addColumnListItem(marker, itemText);
+        });
+      });
+    };
+
+    const addSectionHeading = (text, number = null) => {
+      const cleanTitle = text
+        .replace(/^\s*(?:(?:[IVXLCDM]+|\d+)[.)]?\s+)+/i, "")
+        .trim();
+      const heading = number ? `${number}. ${cleanTitle}` : cleanTitle;
+      doc.setFont("times", "bold");
+      doc.setFontSize(9.5);
+      const lines = wrapText(heading.toUpperCase(), columnWidth);
+      if (y + lines.length * 12 + 24 > bottomLimit) nextColumn();
+      y += 5;
+      lines.forEach((line) => {
+        if (y + 12 > bottomLimit) nextColumn();
+        const xOffset = column === 1 ? columnWidth + columnGap : 0;
+        doc.text(line, margin + xOffset + columnWidth / 2, y, {
+          align: "center",
+        });
+        y += 12;
+      });
+      y += 3;
+    };
+
+    // Full-width first-page title and abstract.
+    doc.setFont("times", "bold");
+    doc.setFontSize(19);
+    const titleLines = wrapText(paper.title, fullWidth);
+    titleLines.forEach((line) => {
+      if (y + 23 > bottomLimit) addPage();
+      doc.text(line, pageWidth / 2, y, { align: "center" });
+      y += 23;
     });
+    y += 13;
+
+    doc.setFont("times", "bolditalic");
+    doc.setFontSize(9.5);
+    doc.text("ABSTRACT", pageWidth / 2, y, { align: "center" });
+    y += 16;
+    addFullWidthParagraphs(paper.abstract, 9, 12);
+    y += 10;
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 17;
+    firstColumnTop = y;
+
+    let sectionNumber = 0;
+    paper.sections.forEach((section) => {
+      const isReferences = /^(references|bibliography)$/i.test(
+        section.title.trim(),
+      );
+      sectionNumber += isReferences ? 0 : 1;
+      addSectionHeading(
+        section.title,
+        isReferences ? null : toRomanNumeral(sectionNumber),
+      );
+
+      if (isReferences) {
+        const entries = normalizePaperText(section.content)
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line && !/^key references:?$/i.test(line));
+        let referenceNumber = 1;
+        entries.forEach((entry) => {
+          const match = entry.match(/^\[(\d+)\]\s*(.*)$|^(\d+)[.)]\s+(.*)$/);
+          const number = match ? match[1] || match[3] : referenceNumber;
+          const citation = match ? match[2] || match[4] : entry;
+          referenceNumber = Number(number) + 1;
+          addColumnParagraph(`[${number}] ${citation}`, {
+            fontSize: 8,
+            leading: 10,
+            indent: 0,
+            justify: false,
+          });
+        });
+        return;
+      }
+
+      addSectionContent(section.content);
+    });
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let page = 1; page <= pageCount; page += 1) {
+      doc.setPage(page);
+      doc.setFont("times", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(90, 90, 90);
+      doc.text(String(page), pageWidth / 2, pageHeight - 22, {
+        align: "center",
+      });
+    }
 
     doc.save(`${paper.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.pdf`);
   };
@@ -274,49 +536,20 @@ export default function PaperPage() {
     setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
-  const escapeLaTeX = (text) =>
-    String(text || "")
-      .replace(/\\/g, "\\textbackslash{}")
-      .replace(/&/g, "\\&")
-      .replace(/%/g, "\\%")
-      .replace(/\$/g, "\\$")
-      .replace(/#/g, "\\#")
-      .replace(/_/g, "\\_")
-      .replace(/\{/g, "\\{")
-      .replace(/\}/g, "\\}")
-      .replace(/\^/g, "\\^{}")
-      .replace(/~/g, "\\textasciitilde{}")
-      .replace(/</g, "\\textless{}")
-      .replace(/>/g, "\\textgreater{}")
-      .replace(/\n/g, "\\newline ");
-
   const exportLaTeX = () => {
-    const latex = [
-      "\\documentclass{article}",
-      "\\usepackage[utf8]{inputenc}",
-      "\\usepackage[T1]{fontenc}",
-      "\\usepackage{lmodern}",
-      "\\usepackage{hyperref}",
-      "\\title{" + escapeLaTeX(paper.title) + "}",
-      "\\date{}",
-      "\\begin{document}",
-      "\\maketitle",
-      "\\begin{abstract}",
-      escapeLaTeX(paper.abstract),
-      "\\end{abstract}",
-      paper.sections
-        .map(
-          (section) =>
-            "\\section{" +
-            escapeLaTeX(section.title) +
-            "}\n" +
-            escapeLaTeX(section.content),
-        )
-        .join("\n\n"),
-      "\\end{document}",
-    ].join("\n\n");
+    const title = String(paper.title || "Research Paper");
+    const latex = buildAcademicLatex({
+      title,
+      authors: paper.authors || "Research Team",
+      query: inputState.query,
+      fields: inputState.themes || [],
+      abstract: paper.abstract,
+      sections: paper.sections || [],
+      gaps: inputState.gaps || [],
+      references: inputState.papers || [],
+    });
 
-    const filename = `${paper.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.tex`;
+    const filename = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.tex`;
     downloadFile(filename, latex, "application/x-latex;charset=utf-8");
   };
 

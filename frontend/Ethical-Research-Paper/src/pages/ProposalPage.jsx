@@ -11,6 +11,7 @@ import {
   StaggerItem,
 } from "../components/ui/animations";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
+import { buildAcademicLatex } from "../utils/academicLatex";
 
 export default function ProposalPage() {
   const location = useLocation();
@@ -127,67 +128,309 @@ export default function ProposalPage() {
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
-    const maxWidth = pageWidth - margin * 2;
-    let yPosition = margin;
-    const getLineHeight = (fontSize) => Math.round(fontSize * 1.4);
+    const margin = 52;
+    const bottomLimit = pageHeight - 46;
+    const columnGap = 22;
+    const columnWidth = (pageWidth - margin * 2 - columnGap) / 2;
+    const fullWidth = pageWidth - margin * 2;
+    let y = 48;
+    let column = 0;
+    let firstColumnTop = y;
 
-    const addText = (text, fontSize = 12, indent = 0) => {
-      doc.setFontSize(fontSize);
-      doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(text || "", maxWidth - indent);
-      const x = margin + indent;
-      const totalHeight = lines.length * getLineHeight(fontSize);
-
-      if (yPosition + totalHeight > pageHeight - margin) {
-        doc.addPage();
-        yPosition = margin;
-      }
-      doc.text(lines, x, yPosition, { baseline: "top" });
-      yPosition += totalHeight + 8;
+    const toRomanNumeral = (value) => {
+      const numerals = [
+        [1000, "M"],
+        [900, "CM"],
+        [500, "D"],
+        [400, "CD"],
+        [100, "C"],
+        [90, "XC"],
+        [50, "L"],
+        [40, "XL"],
+        [10, "X"],
+        [9, "IX"],
+        [5, "V"],
+        [4, "IV"],
+        [1, "I"],
+      ];
+      let number = value;
+      let result = "";
+      numerals.forEach(([amount, numeral]) => {
+        while (number >= amount) {
+          result += numeral;
+          number -= amount;
+        }
+      });
+      return result;
     };
 
-    const addSectionTitle = (title) => {
-      const fontSize = 14;
-      const titleHeight = getLineHeight(fontSize) + 8;
-      if (yPosition + titleHeight > pageHeight - margin) {
-        doc.addPage();
-        yPosition = margin;
-      }
-      doc.setFontSize(fontSize);
-      doc.setFont("helvetica", "bold");
-      doc.text(title, margin, yPosition, { baseline: "top" });
-      yPosition += titleHeight;
+    const wrapText = (text, maxWidth) => {
+      const words = String(text || "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const lines = [];
+      let line = "";
+
+      words.forEach((word) => {
+        if (doc.getTextWidth(word) > maxWidth) {
+          if (line) lines.push(line);
+          line = "";
+          let chunk = "";
+          Array.from(word).forEach((character) => {
+            const candidate = chunk + character;
+            if (chunk && doc.getTextWidth(candidate) > maxWidth) {
+              lines.push(chunk);
+              chunk = character;
+            } else {
+              chunk = candidate;
+            }
+          });
+          line = chunk;
+          return;
+        }
+
+        const candidate = line ? `${line} ${word}` : word;
+        if (line && doc.getTextWidth(candidate) > maxWidth) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = candidate;
+        }
+      });
+
+      if (line) lines.push(line);
+      return lines;
     };
 
-    doc.setFontSize(20);
-    doc.setFont("helvetica", "bold");
-    doc.text(activeProposal.title, margin, yPosition);
-    yPosition += getLineHeight(20) + 12;
+    const drawJustifiedLine = (text, x, baseline, width, justify) => {
+      const words = text.split(/\s+/).filter(Boolean);
+      if (!justify || words.length < 2) {
+        doc.text(text, x, baseline);
+        return;
+      }
+      const wordsWidth = words.reduce(
+        (total, word) => total + doc.getTextWidth(word),
+        0,
+      );
+      const gap = (width - wordsWidth) / (words.length - 1);
+      let currentX = x;
+      words.forEach((word) => {
+        doc.text(word, currentX, baseline);
+        currentX += doc.getTextWidth(word) + gap;
+      });
+    };
 
-    addSectionTitle("Background");
-    addText(activeProposal.background);
+    const addPage = () => {
+      doc.addPage();
+      y = 48;
+      column = 0;
+    };
 
-    addSectionTitle("Problem Statement");
-    addText(activeProposal.problem_statement);
+    const nextColumn = () => {
+      if (column === 0) {
+        column = 1;
+        y = firstColumnTop;
+      } else {
+        addPage();
+      }
+    };
 
-    addSectionTitle("Proposed Methodology");
-    activeProposal.methodology.forEach((step, index) => {
-      addText(`${index + 1}. ${step}`, 12, 10);
+    const addFullWidthParagraphs = (text, fontSize, leading) => {
+      doc.setFont("times", "normal");
+      doc.setFontSize(fontSize);
+      const paragraphs = String(text || "")
+        .replace(/\\r\\n|\\n|\\r/g, "\n")
+        .split(/\n\s*\n+/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean);
+
+      paragraphs.forEach((paragraph) => {
+        const lines = wrapText(paragraph.replace(/\s*\n\s*/g, " "), fullWidth);
+        if (y + Math.min(lines.length, 2) * leading > bottomLimit) addPage();
+        lines.forEach((line, index) => {
+          if (y + leading > bottomLimit) addPage();
+          drawJustifiedLine(
+            line,
+            margin,
+            y,
+            fullWidth,
+            index < lines.length - 1,
+          );
+          y += leading;
+        });
+        y += 4;
+      });
+    };
+
+    const addColumnParagraph = (
+      text,
+      { fontSize = 9, leading = 12, indent = 11, justify = true } = {},
+    ) => {
+      doc.setFont("times", "normal");
+      doc.setFontSize(fontSize);
+      const lines = wrapText(
+        String(text || "").replace(/\s*\n\s*/g, " "),
+        columnWidth - indent,
+      );
+      if (y + Math.min(lines.length, 2) * leading > bottomLimit) nextColumn();
+      lines.forEach((line, index) => {
+        if (y + leading > bottomLimit) nextColumn();
+        const lineIndent = index === 0 ? indent : 0;
+        drawJustifiedLine(
+          line,
+          margin + (column === 1 ? columnWidth + columnGap : 0) + lineIndent,
+          y,
+          columnWidth - lineIndent,
+          justify && index < lines.length - 1,
+        );
+        y += leading;
+      });
+      y += 4;
+    };
+
+    const addColumnListItem = (marker, text) => {
+      const leading = 12;
+      const hangingIndent =
+        marker === "•" ? 15 : doc.getTextWidth(`${marker} `);
+      doc.setFont("times", "normal");
+      doc.setFontSize(9);
+      const lines = wrapText(String(text || ""), columnWidth - hangingIndent);
+      if (y + Math.min(lines.length, 2) * leading > bottomLimit) nextColumn();
+
+      lines.forEach((line, index) => {
+        if (y + leading > bottomLimit) nextColumn();
+        const x = margin + (column === 1 ? columnWidth + columnGap : 0);
+        if (index === 0) {
+          if (marker === "•") {
+            doc.text("•", x + 2, y);
+            doc.text(line, x + hangingIndent, y);
+          } else {
+            doc.text(`${marker} `, x, y);
+            doc.text(line, x + hangingIndent, y);
+          }
+        } else {
+          doc.text(line, x + hangingIndent, y);
+        }
+        y += leading;
+      });
+      y += 2;
+    };
+
+    const addSectionHeading = (text, number = null) => {
+      const cleanTitle = String(text || "")
+        .replace(/^\s*(?:(?:[IVXLCDM]+|\d+)[.)]?\s+)+/i, "")
+        .trim();
+      const heading = number ? `${number}. ${cleanTitle}` : cleanTitle;
+      doc.setFont("times", "bold");
+      doc.setFontSize(9.5);
+      const lines = wrapText(heading.toUpperCase(), columnWidth);
+      if (y + lines.length * 12 + 24 > bottomLimit) nextColumn();
+      y += 5;
+      lines.forEach((line) => {
+        if (y + 12 > bottomLimit) nextColumn();
+        const xOffset = column === 1 ? columnWidth + columnGap : 0;
+        doc.text(line, margin + xOffset + columnWidth / 2, y, {
+          align: "center",
+        });
+        y += 12;
+      });
+      y += 3;
+    };
+
+    const addSectionContent = (content) => {
+      const blocks = String(content || "")
+        .replace(/\\r\\n|\\n|\\r/g, "\n")
+        .split(/\n\s*\n+/)
+        .map((block) => block.replace(/\s*\n\s*/g, " ").trim())
+        .filter(Boolean);
+
+      blocks.forEach((block) => {
+        const listPattern = /(^|\s)(\d{1,2}[.)]|[•●▪◦])\s+/g;
+        const matches = [...block.matchAll(listPattern)];
+        if (!matches.length) {
+          addColumnParagraph(block);
+          return;
+        }
+
+        const parts = [];
+        let previousIndex = 0;
+        matches.forEach((match, index) => {
+          const start = match.index + match[0].length;
+          const end = matches[index + 1]?.index ?? block.length;
+          const itemText = block.slice(start, end).trim();
+          const leadingText = block.slice(previousIndex, match.index).trim();
+          if (leadingText) parts.push({ type: "text", value: leadingText });
+          if (itemText) {
+            const marker = /^[•●▪◦]$/.test(match[2])
+              ? "•"
+              : match[2].replace(/[.)]$/, "");
+            parts.push({ type: "list", value: itemText, marker });
+          }
+          previousIndex = end;
+        });
+
+        parts.forEach((part) => {
+          if (part.type === "text") addColumnParagraph(part.value);
+          else addColumnListItem(part.marker, part.value);
+        });
+      });
+    };
+
+    doc.setFont("times", "bold");
+    doc.setFontSize(19);
+    const titleLines = wrapText(
+      String(activeProposal.title || "Research Proposal"),
+      fullWidth,
+    );
+    titleLines.forEach((line) => {
+      if (y + 23 > bottomLimit) addPage();
+      doc.text(line, pageWidth / 2, y, { align: "center" });
+      y += 23;
+    });
+    y += 13;
+
+    doc.setFont("times", "bolditalic");
+    doc.setFontSize(9.5);
+    doc.text("ABSTRACT", pageWidth / 2, y, { align: "center" });
+    y += 16;
+    addFullWidthParagraphs(activeProposal.background, 9, 12);
+    y += 10;
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 17;
+    firstColumnTop = y;
+
+    const sections = [
+      { title: "Background", content: activeProposal.background },
+      { title: "Problem Statement", content: activeProposal.problem_statement },
+      { title: "Methodology", content: activeProposal.methodology.join("\n") },
+      {
+        title: "Expected Contributions",
+        content: activeProposal.expected_contributions.join("\n"),
+      },
+      { title: "Timeline", content: activeProposal.timeline },
+      { title: "Resources", content: activeProposal.resources.join("\n") },
+    ];
+
+    let sectionNumber = 0;
+    sections.forEach((section) => {
+      sectionNumber += 1;
+      addSectionHeading(section.title, toRomanNumeral(sectionNumber));
+      addSectionContent(section.content);
     });
 
-    addSectionTitle("Expected Contributions");
-    activeProposal.expected_contributions.forEach((item) => {
-      addText(`• ${item}`, 12, 10);
-    });
-
-    addSectionTitle("Timeline");
-    addText(activeProposal.timeline);
-
-    addSectionTitle("Resources");
-    activeProposal.resources.forEach((resource) => {
-      addText(`• ${resource}`, 12, 10);
-    });
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let page = 1; page <= pageCount; page += 1) {
+      doc.setPage(page);
+      doc.setFont("times", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(90, 90, 90);
+      doc.text(String(page), pageWidth / 2, pageHeight - 22, {
+        align: "center",
+      });
+    }
 
     doc.save(
       `${activeProposal.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_proposal.pdf`,
@@ -325,50 +568,42 @@ export default function ProposalPage() {
 
   const exportLaTeX = () => {
     const activeProposal = editableProposal || proposal;
-    const escape = (text) =>
-      String(text)
-        .replace(/\\/g, "\\\\")
-        .replace(/%/g, "\\%")
-        .replace(/\$/g, "\\$")
-        .replace(/#/g, "\\#")
-        .replace(/_/g, "\\_")
-        .replace(/\{/g, "\\{")
-        .replace(/\}/g, "\\}")
-        .replace(/\^/g, "\\^{}")
-        .replace(/&/g, "\\&")
-        .replace(/~/g, "\\textasciitilde{}")
-        .replace(/</g, "\\textless{}")
-        .replace(/>/g, "\\textgreater{}");
-
-    const linesToItems = (lines) =>
-      lines && Array.isArray(lines)
-        ? lines.map((line) => `\\item ${escape(line)}`).join("")
-        : "";
-
-    const formatList = (title, items) => {
-      if (!items || !items.length) return "";
-      return `\\section*{${escape(title)}}\\begin{itemize}[leftmargin=*]${linesToItems(items)}\\end{itemize}`;
-    };
-
-    const latex = [
-      "\\documentclass{article}",
-      "\\usepackage[utf8]{inputenc}",
-      "\\usepackage{enumitem}",
-      "\\begin{document}",
-      `\\title{${escape(activeProposal.title)}}`,
-      "\\maketitle",
-      `\\section*{Background} ${escape(activeProposal.background)}`,
-      `\\section*{Problem Statement} ${escape(activeProposal.problem_statement)}`,
-      `\\section*{Objectives}\\begin{enumerate}[leftmargin=*]${linesToItems(activeProposal.objectives)}\\end{enumerate}`,
-      `\\section*{Proposed Methodology}\\begin{enumerate}[leftmargin=*]${linesToItems(activeProposal.methodology)}\\end{enumerate}`,
-      formatList(
-        "Expected Contributions",
-        activeProposal.expected_contributions,
-      ),
-      `\\section*{Timeline} ${escape(activeProposal.timeline)}`,
-      formatList("Resources", activeProposal.resources),
-      "\\end{document}",
-    ].join("");
+    const latex = buildAcademicLatex({
+      title: activeProposal.title || "Research Proposal",
+      authors: activeProposal.authors || "Research Team",
+      query: inputState.query,
+      fields: inputState.themes || [],
+      abstract:
+        activeProposal.abstract ||
+        [activeProposal.background, activeProposal.problem_statement]
+          .filter(Boolean)
+          .join("\n\n"),
+      sections: [
+        { title: "Background", content: activeProposal.background },
+        {
+          title: "Problem Statement",
+          content: activeProposal.problem_statement,
+        },
+        {
+          title: "Objectives",
+          content: activeProposal.objectives,
+          listType: "enumerate",
+        },
+        {
+          title: "Proposed Methodology",
+          content: activeProposal.methodology,
+          listType: "enumerate",
+        },
+        {
+          title: "Expected Contributions",
+          content: activeProposal.expected_contributions,
+        },
+        { title: "Timeline", content: activeProposal.timeline },
+        { title: "Resources", content: activeProposal.resources },
+      ],
+      gaps: inputState.gaps || [],
+      references: inputState.papers || [],
+    });
 
     const safeFilename = `${activeProposal.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.tex`;
     downloadFile(safeFilename, latex, "application/x-latex;charset=utf-8");

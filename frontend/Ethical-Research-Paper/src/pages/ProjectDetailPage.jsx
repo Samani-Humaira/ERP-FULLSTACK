@@ -1,7 +1,5 @@
-import { useEffect, useState, useRef } from "react";
-
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-
 import {
   ArrowLeft,
   ClipboardPen,
@@ -10,1106 +8,643 @@ import {
   RefreshCcw,
 } from "lucide-react";
 
-import jsPDF from "jspdf";
-
 import Card, { CardBody } from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 import { PageTransition, FadeIn } from "../components/ui/animations";
-
 import CollabEditor from "../components/layout/CollabEditor";
 import CommentPanel from "../components/layout/CommentPanel";
 import VersionHistory from "../components/layout/VersionHistory";
 import TeamPanel from "../components/layout/TeamPanel";
 import { buildAcademicLatex } from "../utils/academicLatex";
+import { downloadProjectPdf } from "../utils/projectPdf";
 
-function displayPaperTitle(title, query) {
-  const source = String(query || title || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const prefix =
-    /^(?:(?:please\s+)?(?:search|find|review|analyze)\s+for\s+)?(?:(?:recent|current)\s+)?(?:academic\s+)?(?:research|literature)\s+(?:papers?\s+)?(?:on|about|into)\s+/i;
-  let topic = source;
-  for (let index = 0; index < 3; index += 1) {
-    const cleaned = topic.replace(prefix, "").trim();
-    if (cleaned === topic) break;
-    topic = cleaned;
+const API_BASE = "http://localhost:8000/api/v1";
+
+const getDocument = (content) => {
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return {};
   }
-  topic = topic.split(
-    /(?:[.!?]\s+|\s+)(?:focus on|with a focus on|include|cover|examine|analyze)\b/i,
-  )[0];
-  const quotedTopics = [...topic.matchAll(/["“']([^"”']{2,100})["”']/g)];
-  if (quotedTopics.length) topic = quotedTopics[quotedTopics.length - 1][1];
-  topic = topic
-    .replace(/["“”'`.,:;]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  if (Array.isArray(content.sections)) return content;
+  if (content.content && typeof content.content === "object") {
+    return content.content;
+  }
+  return content;
+};
 
-  const hasPromptArtifacts =
-    /search for recent academic research|focus on current trends|notable authors|important findings/i.test(
-      String(title || ""),
+const formatHeading = (key = "") =>
+  String(key)
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+
+const toText = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value).replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
+  }
+  if (Array.isArray(value)) return value.map(toText).filter(Boolean).join("; ");
+  if (typeof value === "object") {
+    return toText(
+      value.content ?? value.text ?? value.value ?? Object.values(value),
     );
-  if (!topic || !hasPromptArtifacts) return title || "Research Paper";
+  }
+  return "";
+};
 
-  let formattedTopic = topic
-    .slice(0, 100)
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-  formattedTopic = formattedTopic
-    .replace(/\bAi\b/g, "AI")
-    .replace(/\bNlp\b/g, "NLP")
-    .replace(/\bIot\b/g, "IoT");
-  return `${formattedTopic}: Current Research and Open Challenges`;
-}
-
-function renderAcademicText(value, keyPrefix = "paper-text") {
-  const normalized = String(value ?? "")
-    .replace(/\\n/g, "\n")
-    .replace(/\r\n?/g, "\n");
-  const blocks = [];
-  let paragraph = [];
-  let listItems = [];
-  let listType = null;
-
-  const flushParagraph = () => {
-    if (paragraph.length) {
-      blocks.push({ type: "paragraph", text: paragraph.join(" ") });
-      paragraph = [];
-    }
-  };
-  const flushList = () => {
-    if (listItems.length) {
-      blocks.push({ type: listType, items: listItems });
-      listItems = [];
-      listType = null;
-    }
-  };
-
-  normalized.split("\n").forEach((line) => {
-    const trimmed = line.trim();
-    const item = trimmed.match(/^(?:(\d+)[.)]|[-*•])\s+(.+)$/);
-
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      return;
-    }
-    if (item) {
-      flushParagraph();
-      const nextType = item[1] ? "ol" : "ul";
-      if (listType && listType !== nextType) flushList();
-      listType = nextType;
-      listItems.push(item[2]);
-      return;
-    }
-
-    flushList();
-    if (trimmed.length < 90 && /^[^:]+:$/.test(trimmed)) {
-      flushParagraph();
-      blocks.push({ type: "heading", text: trimmed.slice(0, -1) });
-    } else {
-      paragraph.push(trimmed);
-    }
-  });
-  flushParagraph();
-  flushList();
-
-  return blocks.map((block, index) => {
-    const key = `${keyPrefix}-${index}`;
-    if (block.type === "ol" || block.type === "ul") {
-      const List = block.type;
-      return (
-        <List
-          key={key}
-          className="my-3 space-y-1.5 pl-6 text-slate-700 marker:text-violet-600"
-        >
-          {block.items.map((item, itemIndex) => (
-            <li key={`${key}-${itemIndex}`} className="leading-7">
-              {item}
-            </li>
-          ))}
-        </List>
-      );
-    }
-    if (block.type === "heading") {
-      return (
-        <h4 key={key} className="mb-1 mt-4 font-semibold text-slate-800">
-          {block.text}
-        </h4>
-      );
-    }
+function renderContentValue(value, keyPrefix = "content") {
+  if (value == null || value === "") {
+    return <p className="mt-2 text-slate-500">No content available.</p>;
+  }
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return (
-      <p key={key} className="my-3 leading-7 text-slate-700">
-        {block.text}
+      <p className="mt-2 whitespace-pre-line leading-7 text-slate-700">
+        {String(value)}
       </p>
     );
-  });
-}
-
-export default function ProjectDetailPage() {
-  const navigate = useNavigate();
-  const { id } = useParams();
-
-  const [project, setProject] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const [pendingInviteToken, setPendingInviteToken] = useState(null);
-  const [generatedSummary, setGeneratedSummary] = useState("");
-
-  const [members, setMembers] = useState([]);
-  const [comments, setComments] = useState([]);
-  const [presence, setPresence] = useState([]);
-
-  const [newVersion, setNewVersion] = useState(null);
-
-  const [editingContent, setEditingContent] = useState(null);
-
-  // Used to immediately add the newly-created version to the UI
-  const [versionHistory, setVersionHistory] = useState([]);
-
-  const clientRef = useRef(null);
-
-  //   const handleProposalClick = async () => {
-  //     await fetch("/api/v1/activities/proposal", {
-  //         method: "POST",
-  //         headers: {
-  //             Authorization: `Bearer ${token}`,
-  //         },
-  //     });
-
-  //     // Continue with whatever your proposal button already does
-  // };
-
-  // const createProposalActivity = async () => {
-  //   try {
-  //     await api.post("/activities/proposal");
-  //   } catch (error) {
-  //     console.error("Failed to create proposal activity:", error);
-  //   }
-  // };
-
-  const createProposalActivity = async () => {
-    try {
-      const res = await fetch(
-        "http://localhost:8000/api/v1/activities/proposal",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || "Failed to create proposal activity");
-      }
-
-      const data = await res.json();
-
-      console.log("Activity created:", data);
-
-      return data;
-    } catch (err) {
-      console.error("Proposal activity error:", err);
-    }
-  };
-
-  const formatHeading = (key) =>
-    key
-      .replace(/\_/g, " ")
-      .replace(/([a-z])([A-Z])/g, "$1 $2")
-      .replace(/\b\w/g, (chr) => chr.toUpperCase());
-
-  const renderContentValue = (value) => {
-    if (value === null || value === undefined) {
-      return <p className="text-slate-500 mt-2">No content available.</p>;
-    }
-
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      return (
-        <p className="whitespace-pre-line text-slate-700 mt-2">
-          {String(value)}
-        </p>
-      );
-    }
-
-    if (Array.isArray(value)) {
-      return (
-        <ul className="mt-2 list-disc pl-5 text-slate-700 space-y-1">
-          {value.map((item, index) => (
-            <li key={index} className="mt-1">
-              {typeof item === "string" || typeof item === "number"
-                ? String(item)
-                : renderContentValue(item)}
-            </li>
-          ))}
-        </ul>
-      );
-    }
-
-    if (typeof value === "object") {
-      return (
-        <div className="space-y-4 mt-2">
-          {Object.entries(value).map(([subKey, subValue]) => (
-            <div key={subKey}>
-              <h4 className="font-semibold text-slate-800">
-                {formatHeading(subKey)}
-              </h4>
-
-              {renderContentValue(subValue)}
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    return <p className="text-slate-500 mt-2">Unsupported content format.</p>;
-  };
-
-  const renderProjectContent = (content, originalQuery = "") => {
-    if (!content) {
-      return <p className="text-slate-500 mt-2">No content available.</p>;
-    }
-
-    if (
-      typeof content === "string" ||
-      typeof content === "number" ||
-      typeof content === "boolean"
-    ) {
-      return (
-        <p className="whitespace-pre-line text-slate-700 mt-2">
-          {String(content)}
-        </p>
-      );
-    }
-
-    if (Array.isArray(content)) {
-      return renderContentValue(content);
-    }
-
-    const paperContent = Array.isArray(content.sections)
-      ? content
-      : content.content && Array.isArray(content.content.sections)
-        ? content.content
-        : null;
-
-    if (paperContent && (paperContent.title || paperContent.abstract)) {
-      return (
-        <article className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-sm sm:px-10">
-          {paperContent.title && (
-            <h2 className="mb-8 text-center text-2xl font-bold leading-tight text-slate-900">
-              {displayPaperTitle(paperContent.title, originalQuery)}
-            </h2>
-          )}
-          {paperContent.abstract && (
-            <section className="mb-8 border-b border-slate-200 pb-6">
-              <h3 className="mb-3 text-center text-lg font-semibold text-slate-900">
-                Abstract
-              </h3>
-              <div className="text-justify text-slate-700">
-                {renderAcademicText(paperContent.abstract, "paper-abstract")}
-              </div>
-            </section>
-          )}
-          <div className="space-y-8">
-            {paperContent.sections.map((section, index) => (
-              <section key={`${section.title || "section"}-${index}`}>
-                {section.title && (
-                  <h3 className="mb-3 border-b border-slate-200 pb-2 text-lg font-bold uppercase tracking-wide text-slate-900">
-                    {section.title}
-                  </h3>
-                )}
-                <div className="text-justify">
-                  {renderAcademicText(
-                    section.content,
-                    `paper-section-${index}`,
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
-        </article>
-      );
-    }
-
+  }
+  if (Array.isArray(value)) {
     return (
-      <div className="space-y-6 mt-2">
-        {Object.entries(content).map(([key, value]) => (
-          <div key={key} className="space-y-2">
-            <h4 className="font-semibold text-slate-800">
-              {formatHeading(key)}
-            </h4>
-
-            {renderContentValue(value)}
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-700">
+        {value.map((item, index) => (
+          <li key={`${keyPrefix}-${index}`}>
+            {typeof item === "object"
+              ? renderContentValue(item, `${keyPrefix}-${index}`)
+              : String(item)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === "object") {
+    return (
+      <div className="mt-3 space-y-3">
+        {Object.entries(value).map(([key, item]) => (
+          <div key={`${keyPrefix}-${key}`}>
+            <h4 className="font-medium text-slate-800">{formatHeading(key)}</h4>
+            {renderContentValue(item, `${keyPrefix}-${key}`)}
           </div>
         ))}
       </div>
     );
-  };
+  }
+  return <p className="mt-2 text-slate-500">Unsupported content format.</p>;
+}
 
-  const summarizeProject = () => {
-    if (!project) {
-      return "";
-    }
-
-    if (
-      project.content &&
-      typeof project.content === "object" &&
-      project.content.abstract
-    ) {
-      return project.content.abstract;
-    }
-
-    const lines = [];
-
-    const title =
-      project.content?.title || project.title || "This research project";
-
-    lines.push(
-      `${title} is a ${project.project_type} focused on ${
-        project.query || "a research topic"
-      }.`,
+function renderProjectContent(content, query = "") {
+  if (!content)
+    return <p className="mt-2 text-slate-500">No content available.</p>;
+  if (typeof content !== "object" || Array.isArray(content)) {
+    return renderContentValue(content);
+  }
+  const document = getDocument(content);
+  const sections = Array.isArray(document.sections) ? document.sections : [];
+  const isPaper = sections.length > 0 || document.abstract;
+  if (isPaper) {
+    return (
+      <article className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white px-6 py-8 sm:px-10">
+        {document.title && (
+          <h2 className="mb-7 text-center text-2xl font-bold text-slate-900">
+            {document.title}
+          </h2>
+        )}
+        {document.abstract && (
+          <section className="mb-7 border-b border-slate-200 pb-5">
+            <h3 className="mb-2 text-center text-lg font-semibold">Abstract</h3>
+            {renderContentValue(document.abstract, "abstract")}
+          </section>
+        )}
+        <div className="space-y-7">
+          {sections.map((section, index) => (
+            <section key={`${section.title || "section"}-${index}`}>
+              {section.title && (
+                <h3 className="mb-2 border-b border-slate-200 pb-2 text-lg font-bold uppercase tracking-wide">
+                  {section.title}
+                </h3>
+              )}
+              {renderContentValue(section.content, `section-${index}`)}
+            </section>
+          ))}
+        </div>
+      </article>
     );
+  }
+  return (
+    <div className="mt-3 space-y-5">
+      {Object.entries(content).map(([key, value]) => (
+        <section key={key}>
+          <h4 className="font-semibold text-slate-800">{formatHeading(key)}</h4>
+          {renderContentValue(value, key)}
+        </section>
+      ))}
+      {query && !Object.keys(content).length && (
+        <p className="text-slate-500">Research topic: {query}</p>
+      )}
+    </div>
+  );
+}
 
-    if (project.content?.background) {
-      lines.push(`Background: ${project.content.background}`);
+const makeCitationText = (paper, index) => {
+  if (typeof paper === "string" || typeof paper === "number")
+    return String(paper);
+  if (!paper) return `Reference ${index + 1}`;
+  const authors = Array.isArray(paper.authors)
+    ? paper.authors.join(", ")
+    : paper.authors || "Unknown authors";
+  const year = paper.year ? ` (${paper.year})` : "";
+  const title = paper.title || paper.name || `Paper ${index + 1}`;
+  const source = paper.source || paper.journal || paper.url || "";
+  return `${authors}${year}. ${title}${source ? `. ${source}` : ""}`;
+};
+
+const downloadTextFile = (filename, content, mimeType) => {
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+export default function ProjectDetailPage() {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const clientRef = useRef(null);
+  const [project, setProject] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [pendingInviteToken, setPendingInviteToken] = useState("");
+  const [generatedSummary, setGeneratedSummary] = useState("");
+  const [generatedSummarySource, setGeneratedSummarySource] = useState("");
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
+  const [editingContent, setEditingContent] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [presence, setPresence] = useState([]);
+  const [newVersion, setNewVersion] = useState(null);
+
+  const currentUser = useCallback(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "{}");
+    } catch {
+      return {};
     }
-
-    if (project.content?.problem_statement) {
-      lines.push(`Problem: ${project.content.problem_statement}`);
-    }
-
-    if (project.content?.objectives) {
-      const objectives = Array.isArray(project.content.objectives)
-        ? project.content.objectives.join("; ")
-        : project.content.objectives;
-
-      lines.push(`Objectives: ${objectives}`);
-    }
-
-    if (project.content?.methodology) {
-      const methodology = Array.isArray(project.content.methodology)
-        ? project.content.methodology.join(" ")
-        : project.content.methodology;
-
-      lines.push(`Methodology: ${methodology}`);
-    }
-
-    if (project.content?.expected_contributions) {
-      const contributions = Array.isArray(
-        project.content.expected_contributions,
-      )
-        ? project.content.expected_contributions.join("; ")
-        : project.content.expected_contributions;
-
-      lines.push(`Expected contributions: ${contributions}`);
-    }
-
-    if (project.gaps_data) {
-      const gapCount = Array.isArray(project.gaps_data)
-        ? project.gaps_data.length
-        : 1;
-
-      lines.push(
-        `This work identifies ${gapCount} research gap(s) and structures the study around them.`,
-      );
-    }
-
-    if (
-      !project.content?.abstract &&
-      !project.content?.background &&
-      !project.content?.problem_statement
-    ) {
-      lines.push(
-        `This saved project includes ${
-          project.papers_data?.length || 0
-        } source papers and a generated research overview.`,
-      );
-    }
-
-    return lines.join(" ");
-  };
-
-  const makeCitationText = (paper, index) => {
-    if (!paper) {
-      return `Reference ${index + 1}`;
-    }
-
-    const authors = Array.isArray(paper.authors)
-      ? paper.authors.join(", ")
-      : paper.authors || "Unknown authors";
-
-    const year = paper.year ? ` (${paper.year})` : "";
-
-    const title = paper.title || paper.name || `Paper ${index + 1}`;
-
-    const source = paper.source || paper.journal || paper.url || "";
-
-    return `${authors}${year}. ${title}${source ? `. ${source}` : ""}`;
-  };
-
-  const buildLaTeX = () => {
-    const summary = generatedSummary || summarizeProject() || "";
-    const authors =
-      Array.isArray(project.authors) && project.authors.length
-        ? project.authors.join(", ")
-        : project.author || "Research Team";
-
-    const contentSections = Array.isArray(project.content?.sections)
-      ? project.content.sections
-      : Array.isArray(project.content?.content?.sections)
-        ? project.content.content.sections
-        : [];
-
-    return buildAcademicLatex({
-      title: project.title || "Research Project",
-      authors,
-      query: project.query || "N/A",
-      fields: project.themes || project.content?.themes || [],
-      abstract: summary,
-      sections: contentSections,
-      gaps: project.gaps_data || [],
-      references: project.papers_data || [],
-    });
-  };
-
-  const downloadFile = (filename, content, mimeType) => {
-    const blob = new Blob([content], {
-      type: mimeType,
-    });
-
-    const url = URL.createObjectURL(blob);
-
-    const anchor = document.createElement("a");
-
-    anchor.href = url;
-    anchor.download = filename;
-
-    document.body.appendChild(anchor);
-
-    anchor.click();
-
-    anchor.remove();
-
-    URL.revokeObjectURL(url);
-  };
-
-  const exportLaTeX = () => {
-    const latex = buildLaTeX();
-
-    downloadFile(
-      `${project.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.tex`,
-      latex,
-      "application/x-latex;charset=utf-8",
-    );
-  };
-
-  const exportPDF = () => {
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 52;
-    const bottomLimit = pageHeight - 46;
-    const columnGap = 22;
-    const columnWidth = (pageWidth - margin * 2 - columnGap) / 2;
-    const fullWidth = pageWidth - margin * 2;
-    let y = 48;
-    let column = 0;
-    let firstColumnTop = y;
-
-    const toRomanNumeral = (value) => {
-      const numerals = [
-        [1000, "M"],
-        [900, "CM"],
-        [500, "D"],
-        [400, "CD"],
-        [100, "C"],
-        [90, "XC"],
-        [50, "L"],
-        [40, "XL"],
-        [10, "X"],
-        [9, "IX"],
-        [5, "V"],
-        [4, "IV"],
-        [1, "I"],
-      ];
-      let number = value;
-      let result = "";
-      numerals.forEach(([amount, numeral]) => {
-        while (number >= amount) {
-          result += numeral;
-          number -= amount;
-        }
-      });
-      return result;
-    };
-
-    const wrapText = (text, maxWidth) => {
-      const words = String(text || "")
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean);
-      const lines = [];
-      let line = "";
-
-      words.forEach((word) => {
-        if (doc.getTextWidth(word) > maxWidth) {
-          if (line) lines.push(line);
-          line = "";
-          let chunk = "";
-          Array.from(word).forEach((character) => {
-            const candidate = chunk + character;
-            if (chunk && doc.getTextWidth(candidate) > maxWidth) {
-              lines.push(chunk);
-              chunk = character;
-            } else {
-              chunk = candidate;
-            }
-          });
-          line = chunk;
-          return;
-        }
-
-        const candidate = line ? `${line} ${word}` : word;
-        if (line && doc.getTextWidth(candidate) > maxWidth) {
-          lines.push(line);
-          line = word;
-        } else {
-          line = candidate;
-        }
-      });
-
-      if (line) lines.push(line);
-      return lines;
-    };
-
-    const drawJustifiedLine = (text, x, baseline, width, justify) => {
-      const words = text.split(/\s+/).filter(Boolean);
-      if (!justify || words.length < 2) {
-        doc.text(text, x, baseline);
-        return;
-      }
-      const wordsWidth = words.reduce(
-        (total, word) => total + doc.getTextWidth(word),
-        0,
-      );
-      const gap = (width - wordsWidth) / (words.length - 1);
-      let currentX = x;
-      words.forEach((word) => {
-        doc.text(word, currentX, baseline);
-        currentX += doc.getTextWidth(word) + gap;
-      });
-    };
-
-    const addPage = () => {
-      doc.addPage();
-      y = 48;
-      column = 0;
-    };
-
-    const nextColumn = () => {
-      if (column === 0) {
-        column = 1;
-        y = firstColumnTop;
-      } else {
-        addPage();
-      }
-    };
-
-    const addFullWidthParagraphs = (text, fontSize, leading) => {
-      doc.setFont("times", "normal");
-      doc.setFontSize(fontSize);
-      const paragraphs = String(text || "")
-        .replace(/\\r\\n|\\n|\\r/g, "\n")
-        .split(/\n\s*\n+/)
-        .map((paragraph) => paragraph.trim())
-        .filter(Boolean);
-
-      paragraphs.forEach((paragraph) => {
-        const lines = wrapText(paragraph.replace(/\s*\n\s*/g, " "), fullWidth);
-        if (y + Math.min(lines.length, 2) * leading > bottomLimit) addPage();
-        lines.forEach((line, index) => {
-          if (y + leading > bottomLimit) addPage();
-          drawJustifiedLine(
-            line,
-            margin,
-            y,
-            fullWidth,
-            index < lines.length - 1,
-          );
-          y += leading;
-        });
-        y += 4;
-      });
-    };
-
-    const addColumnParagraph = (
-      text,
-      { fontSize = 9, leading = 12, indent = 11, justify = true } = {},
-    ) => {
-      doc.setFont("times", "normal");
-      doc.setFontSize(fontSize);
-      const lines = wrapText(
-        String(text || "").replace(/\s*\n\s*/g, " "),
-        columnWidth - indent,
-      );
-      if (y + Math.min(lines.length, 2) * leading > bottomLimit) nextColumn();
-      lines.forEach((line, index) => {
-        if (y + leading > bottomLimit) nextColumn();
-        const lineIndent = index === 0 ? indent : 0;
-        drawJustifiedLine(
-          line,
-          margin + (column === 1 ? columnWidth + columnGap : 0) + lineIndent,
-          y,
-          columnWidth - lineIndent,
-          justify && index < lines.length - 1,
-        );
-        y += leading;
-      });
-      y += 4;
-    };
-
-    const addColumnListItem = (marker, text) => {
-      const leading = 12;
-      const hangingIndent =
-        marker === "•" ? 15 : doc.getTextWidth(`${marker} `);
-      doc.setFont("times", "normal");
-      doc.setFontSize(9);
-      const lines = wrapText(String(text || ""), columnWidth - hangingIndent);
-      if (y + Math.min(lines.length, 2) * leading > bottomLimit) nextColumn();
-
-      lines.forEach((line, index) => {
-        if (y + leading > bottomLimit) nextColumn();
-        const x = margin + (column === 1 ? columnWidth + columnGap : 0);
-        if (index === 0) {
-          if (marker === "•") {
-            doc.text("•", x + 2, y);
-            doc.text(line, x + hangingIndent, y);
-          } else {
-            doc.text(`${marker} `, x, y);
-            doc.text(line, x + hangingIndent, y);
-          }
-        } else {
-          doc.text(line, x + hangingIndent, y);
-        }
-        y += leading;
-      });
-      y += 2;
-    };
-
-    const addSectionHeading = (text, number = null) => {
-      const cleanTitle = String(text || "")
-        .replace(/^\s*(?:(?:[IVXLCDM]+|\d+)[.)]?\s+)+/i, "")
-        .trim();
-      const heading = number ? `${number}. ${cleanTitle}` : cleanTitle;
-      doc.setFont("times", "bold");
-      doc.setFontSize(9.5);
-      const lines = wrapText(heading.toUpperCase(), columnWidth);
-      if (y + lines.length * 12 + 24 > bottomLimit) nextColumn();
-      y += 5;
-      lines.forEach((line) => {
-        if (y + 12 > bottomLimit) nextColumn();
-        const xOffset = column === 1 ? columnWidth + columnGap : 0;
-        doc.text(line, margin + xOffset + columnWidth / 2, y, {
-          align: "center",
-        });
-        y += 12;
-      });
-      y += 3;
-    };
-
-    const addSectionContent = (content) => {
-      const blocks = String(content || "")
-        .replace(/\\r\\n|\\n|\\r/g, "\n")
-        .split(/\n\s*\n+/)
-        .map((block) => block.replace(/\s*\n\s*/g, " ").trim())
-        .filter(Boolean);
-
-      blocks.forEach((block) => {
-        const listPattern = /(^|\s)(\d{1,2}[.)]|[•●▪◦])\s+/g;
-        const matches = [...block.matchAll(listPattern)];
-        const startsWithList = matches.length > 0 && matches[0].index === 0;
-
-        if (!matches.length || (!startsWithList && matches.length === 1)) {
-          addColumnParagraph(block);
-          return;
-        }
-
-        const parts = [];
-        let previousIndex = 0;
-        matches.forEach((match, index) => {
-          const start = match.index + match[0].length;
-          const end = matches[index + 1]?.index ?? block.length;
-          const itemText = block.slice(start, end).trim();
-          const leadingText = block.slice(previousIndex, match.index).trim();
-          if (leadingText) parts.push({ type: "text", value: leadingText });
-          if (itemText) {
-            const marker = /^[•●▪◦]$/.test(match[2])
-              ? "•"
-              : match[2].replace(/[.)]$/, "");
-            parts.push({ type: "list", value: itemText, marker });
-          }
-          previousIndex = end;
-        });
-
-        parts.forEach((part) => {
-          if (part.type === "text") addColumnParagraph(part.value);
-          else addColumnListItem(part.marker, part.value);
-        });
-      });
-    };
-
-    const paperContent = Array.isArray(project.content?.sections)
-      ? project.content
-      : Array.isArray(project.content?.content?.sections)
-        ? project.content.content
-        : null;
-    const documentTitle =
-      paperContent?.title || project.content?.title || project.title;
-
-    doc.setFont("times", "bold");
-    doc.setFontSize(19);
-    const titleLines = wrapText(
-      String(documentTitle || "Research Paper"),
-      fullWidth,
-    );
-    titleLines.forEach((line) => {
-      if (y + 23 > bottomLimit) addPage();
-      doc.text(line, pageWidth / 2, y, { align: "center" });
-      y += 23;
-    });
-    y += 13;
-
-    const authors = paperContent?.authors;
-    const authorLine = Array.isArray(authors)
-      ? authors.join(", ")
-      : typeof authors === "string"
-        ? authors
-        : "";
-    if (authorLine) {
-      doc.setFont("times", "italic");
-      doc.setFontSize(8.5);
-      const authorLines = wrapText(authorLine, fullWidth);
-      authorLines.forEach((line) => {
-        if (y + 12 > bottomLimit) addPage();
-        doc.text(line, pageWidth / 2, y, { align: "center" });
-        y += 12;
-      });
-      y += 8;
-    }
-
-    doc.setFont("times", "bolditalic");
-    doc.setFontSize(9.5);
-    doc.text("ABSTRACT", pageWidth / 2, y, { align: "center" });
-    y += 16;
-    addFullWidthParagraphs(
-      paperContent?.abstract || project.content?.abstract || "",
-      9,
-      12,
-    );
-    y += 10;
-    doc.setDrawColor(150, 150, 150);
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 17;
-    firstColumnTop = y;
-
-    let sectionNumber = 0;
-    const sectionSource = paperContent?.sections || [];
-    if (sectionSource.length) {
-      sectionSource.forEach((section) => {
-        const isReferences = /^(references|bibliography)$/i.test(
-          String(section.title || "").trim(),
-        );
-        if (!isReferences) sectionNumber += 1;
-        addSectionHeading(
-          section.title || "Section",
-          isReferences ? null : toRomanNumeral(sectionNumber),
-        );
-        if (isReferences) {
-          const entries = String(section.content || "")
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line && !/^key references:?$/i.test(line));
-          entries.forEach((entry, index) => {
-            const match = entry.match(/^\[(\d+)\]\s*(.*)$|^(\d+)[.)]\s+(.*)$/);
-            const number = match ? match[1] || match[3] : index + 1;
-            const citation = match ? match[2] || match[4] : entry;
-            addColumnListItem(`${number}.`, citation);
-          });
-        } else {
-          addSectionContent(section.content || "");
-        }
-      });
-    } else if (project.content && typeof project.content === "object") {
-      const excludedKeys = new Set([
-        "title",
-        "abstract",
-        "sections",
-        "content",
-      ]);
-      Object.entries(project.content).forEach(([key, value]) => {
-        if (excludedKeys.has(key)) return;
-        if (typeof value === "string") {
-          addSectionHeading(formatHeading(key));
-          addSectionContent(value);
-        } else if (Array.isArray(value)) {
-          addSectionHeading(formatHeading(key));
-          value.forEach((item) => {
-            if (typeof item === "string") addColumnListItem("•", item);
-            else addSectionContent(JSON.stringify(item));
-          });
-        } else if (value && typeof value === "object") {
-          addSectionHeading(formatHeading(key));
-          addSectionContent(
-            Object.entries(value)
-              .map(([k, v]) => `${k}: ${v}`)
-              .join("\n"),
-          );
-        }
-      });
-    }
-
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let page = 1; page <= pageCount; page += 1) {
-      doc.setPage(page);
-      doc.setFont("times", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(90, 90, 90);
-      doc.text(String(page), pageWidth / 2, pageHeight - 22, {
-        align: "center",
-      });
-    }
-
-    doc.save(`${project.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.pdf`);
-  };
+  }, []);
 
   useEffect(() => {
-    const fetchProject = async () => {
+    let cancelled = false;
+    let client;
+    const loadProject = async () => {
+      setLoading(true);
+      setError("");
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setError("Not authenticated. Please log in first.");
+        setLoading(false);
+        return;
+      }
       try {
-        setLoading(true);
-        setError(null);
-
-        const token = localStorage.getItem("token");
-
-        if (!token) {
-          setError("Not authenticated. Please login first.");
-
-          setLoading(false);
-
-          return;
-        }
-
-        const res = await fetch(`http://localhost:8000/api/v1/projects/${id}`, {
+        const response = await fetch(`${API_BASE}/projects/${id}`, {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
         });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-
-          throw new Error(errData.detail || "Failed to load project details.");
-        }
-
-        const data = await res.json();
-
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw new Error(data.detail || "Failed to load project details.");
+        if (cancelled) return;
         setProject(data);
 
-        // ----------------------------------------
-        // Accept invite token
-        // ----------------------------------------
-
-        try {
-          const params = new URLSearchParams(window.location.search);
-
-          const inviteToken = params.get("invite_token");
-
-          const localToken = localStorage.getItem("token");
-
-          if (inviteToken) {
-            if (!localToken) {
-              setPendingInviteToken(inviteToken);
-            } else {
-              const acceptRes = await fetch(
-                `http://localhost:8000/api/v1/projects/${id}/invite/accept`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${localToken}`,
-                  },
-                  body: JSON.stringify({
-                    token: inviteToken,
-                  }),
+        const inviteToken = new URLSearchParams(window.location.search).get(
+          "invite_token",
+        );
+        if (inviteToken) {
+          try {
+            const accepted = await fetch(
+              `${API_BASE}/projects/${id}/invite/accept`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
                 },
-              );
-
-              if (acceptRes.ok) {
-                const body = await acceptRes.json();
-
-                if (body?.member) {
-                  setMembers((m) => [...m, body.member]);
-                }
-              }
+                body: JSON.stringify({ token: inviteToken }),
+              },
+            );
+            if (accepted.ok) {
+              const result = await accepted.json();
+              if (!cancelled && result.member)
+                setMembers((existing) => [...existing, result.member]);
+            } else if (!cancelled) {
+              setPendingInviteToken(inviteToken);
             }
+          } catch {
+            if (!cancelled) setPendingInviteToken(inviteToken);
           }
-        } catch (e) {
-          // Ignore invite errors silently
         }
 
-        // ----------------------------------------
-        // Fetch members
-        // ----------------------------------------
+        const [memberResponse, commentResponse] = await Promise.all([
+          fetch(`${API_BASE}/projects/${id}/members`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/projects/${id}/comments`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+        if (!cancelled && memberResponse.ok)
+          setMembers(await memberResponse.json());
+        if (!cancelled && commentResponse.ok)
+          setComments(await commentResponse.json());
 
-        const memRes = await fetch(
-          `http://localhost:8000/api/v1/projects/${id}/members`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        );
-
-        if (memRes.ok) {
-          setMembers(await memRes.json());
-        }
-
-        // ----------------------------------------
-        // Fetch comments
-        // ----------------------------------------
-
-        const comRes = await fetch(
-          `http://localhost:8000/api/v1/projects/${id}/comments`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        );
-
-        if (comRes.ok) {
-          setComments(await comRes.json());
-        }
-
-        // ----------------------------------------
-        // Create collaboration client
-        // ----------------------------------------
-
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
-
-        const CollabClient = (await import("../api/collaboration")).default;
-
-        const client = new CollabClient(id, (msg) => {
-          if (msg.type === "delta") {
-            const payload = msg.payload || {};
-
+        const user = currentUser();
+        const CollaborationClient = (await import("../api/collaboration"))
+          .default;
+        if (cancelled) return;
+        client = new CollaborationClient(id, (message) => {
+          if (message.type === "delta") {
+            const payload = message.payload || {};
             if (payload.sender_id !== user.id && payload.content) {
-              setProject((p) => ({
-                ...p,
-                content: payload.content,
-              }));
+              setProject((previous) =>
+                previous ? { ...previous, content: payload.content } : previous,
+              );
+              setEditingContent(null);
             }
-          } else if (msg.type === "presence") {
-            setPresence(msg.presence || []);
-          } else if (msg.type === "comment_created") {
-            setComments((c) => [...c, msg.payload]);
-          } else if (msg.type === "member_added") {
-            setMembers((m) => [...m, msg.payload]);
+          } else if (message.type === "presence") {
+            setPresence(message.presence || []);
+          } else if (message.type === "comment_created" && message.payload) {
+            setComments((existing) =>
+              existing.some((comment) => comment.id === message.payload.id)
+                ? existing
+                : [...existing, message.payload],
+            );
+          } else if (message.type === "member_added" && message.payload) {
+            setMembers((existing) =>
+              existing.some(
+                (member) => member.user_id === message.payload.user_id,
+              )
+                ? existing
+                : [...existing, message.payload],
+            );
+          } else if (message.type === "access_revoked") {
+            setError("Your access to this project has been revoked.");
           }
         });
-
         clientRef.current = client;
-
-        client.connect(localStorage.getItem("token"), user);
-      } catch (err) {
-        setError(err.message || "Failed to load project details.");
+        client.connect(token, user);
+      } catch (loadError) {
+        if (!cancelled)
+          setError(loadError.message || "Failed to load project details.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
+    loadProject();
+    return () => {
+      cancelled = true;
+      client?.disconnect(currentUser());
+      if (clientRef.current === client) clientRef.current = null;
+    };
+  }, [id, currentUser]);
 
-    fetchProject();
-  }, [id]);
+  const content = editingContent || project?.content || {};
+  const document = getDocument(content);
+  const summarizeProject = () => {
+    if (!project) return "";
+    const abstract = toText(document.abstract || content.abstract);
+    if (abstract) return abstract;
+    const fields = [
+      ["Background", document.background || content.background],
+      [
+        "Research problem",
+        document.problem_statement || content.problem_statement,
+      ],
+      ["Objectives", document.objectives || content.objectives],
+      ["Methodology", document.methodology || content.methodology],
+      [
+        "Expected contributions",
+        document.expected_contributions || content.expected_contributions,
+      ],
+    ];
+    const details = fields
+      .map(([label, value]) => {
+        const text = toText(value);
+        return text ? `${label}: ${text}` : "";
+      })
+      .filter(Boolean);
+    if (Array.isArray(document.sections)) {
+      document.sections
+        .filter((section) =>
+          /introduction|conclusion|finding|discussion/i.test(
+            section?.title || "",
+          ),
+        )
+        .forEach((section) => {
+          const text = toText(section.content);
+          if (text) details.push(`${section.title}: ${text}`);
+        });
+    }
+    const overview = `${document.title || project.title || "This research project"} is a ${project.project_type || "research"} project focused on ${project.query || project.title || "a research topic"}.`;
+    if (!details.length) {
+      const paperCount = project.papers_data?.length || 0;
+      const gapCount = Array.isArray(project.gaps_data)
+        ? project.gaps_data.length
+        : project.gaps_data
+          ? 1
+          : 0;
+      return `${overview} It includes ${paperCount} source paper(s)${gapCount ? ` and identifies ${gapCount} research gap(s)` : ""}.`;
+    }
+    const summary = [overview, ...details].join(" ");
+    return summary.length > 1200
+      ? `${summary.slice(0, 1200).replace(/\s+\S*$/, "")}…`
+      : summary;
+  };
+
+  const generateProjectSummary = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setSummaryError("Please log in to generate a project summary.");
+      return;
+    }
+    setSummaryLoading(true);
+    setSummaryError("");
+    try {
+      const response = await fetch(
+        `${API_BASE}/projects/${id}/summary/generate`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(
+          result.detail ||
+            `Summary generation failed (HTTP ${response.status}).`,
+        );
+      if (typeof result.summary !== "string" || !result.summary.trim())
+        throw new Error(
+          "The summary service returned an empty result. Please try again.",
+        );
+      setGeneratedSummary(result.summary.trim());
+      setGeneratedSummarySource(result.source || "ai");
+    } catch (generationError) {
+      setSummaryError(
+        generationError.message ||
+          "Could not generate a summary. Please try again.",
+      );
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const createProposalActivity = async () => {
+    const token = localStorage.getItem("token");
+    try {
+      const response = await fetch(`${API_BASE}/activities/proposal`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.detail || "Failed to create proposal activity.");
+      }
+      return await response.json();
+    } catch (activityError) {
+      console.error("Proposal activity error:", activityError);
+      return null;
+    }
+  };
+
+  const buildLaTeX = () => {
+    const paperSections = Array.isArray(document.sections)
+      ? document.sections
+      : [];
+    return buildAcademicLatex({
+      title: document.title || project?.title || "Research Project",
+      authors:
+        document.authors ||
+        project?.authors ||
+        project?.author ||
+        "Research Team",
+      query: project?.query || "N/A",
+      fields: project?.themes || document.themes || [],
+      abstract: generatedSummary || document.abstract || summarizeProject(),
+      sections: paperSections,
+      gaps: project?.gaps_data || [],
+      references: project?.papers_data || [],
+    });
+  };
+
+  const exportLaTeX = () => {
+    if (!project) return;
+    const name = String(project.title || "research-project")
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase();
+    downloadTextFile(
+      `${name}.tex`,
+      buildLaTeX(),
+      "application/x-latex;charset=utf-8",
+    );
+  };
+
+  const exportPDF = () => {
+    if (!project) return;
+    const sections = Array.isArray(document.sections)
+      ? document.sections
+      : Object.entries(document)
+          .filter(
+            ([key]) =>
+              ![
+                "title",
+                "abstract",
+                "authors",
+                "sections",
+                "content",
+                "themes",
+              ].includes(key),
+          )
+          .map(([title, value]) => ({
+            title: formatHeading(title),
+            content: value,
+          }));
+    const references = Array.isArray(project.papers_data)
+      ? project.papers_data
+      : [];
+    if (references.length) {
+      sections.push({
+        title: "References",
+        content: references.map(makeCitationText).join("\n"),
+      });
+    }
+    downloadProjectPdf({
+      title: document.title || project.title || "Research Project",
+      authors:
+        document.authors ||
+        project.authors ||
+        project.author ||
+        "Research Team",
+      abstract:
+        generatedSummary ||
+        document.abstract ||
+        content.abstract ||
+        summarizeProject(),
+      sections,
+      filename: project.title || document.title || "research-project",
+    });
+  };
+
+  const handleSave = async ({ content: nextContent, commit_message }) => {
+    const token = localStorage.getItem("token");
+    const commitMessage = String(commit_message || "").trim();
+    if (!commitMessage)
+      throw new Error("Please enter a commit message before saving.");
+    const response = await fetch(`${API_BASE}/projects/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        content: nextContent,
+        commit_message: commitMessage,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(result.detail || "Failed to save project.");
+    if (result.project)
+      setProject((previous) =>
+        previous
+          ? {
+              ...previous,
+              content: result.project.content,
+              updated_at: result.project.updated_at,
+            }
+          : previous,
+      );
+    setEditingContent(null);
+    if (result.version) setNewVersion(result.version);
+    return result;
+  };
+
+  const addComment = async (payload) => {
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${API_BASE}/projects/${id}/comments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(result.detail || "Failed to add comment.");
+    setComments((existing) =>
+      existing.some((comment) => comment.id === result.id)
+        ? existing
+        : [...existing, result],
+    );
+    clientRef.current?.send({ type: "comment_created", payload: result });
+    return result;
+  };
+
+  const addMember = async (payload) => {
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${API_BASE}/projects/${id}/members`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(result.detail || "Failed to add project member.");
+    setMembers((existing) =>
+      existing.some((member) => member.user_id === result.user_id)
+        ? existing
+        : [...existing, result],
+    );
+    clientRef.current?.send({ type: "member_added", payload: result });
+    return result;
+  };
+
+  if (loading) {
+    return (
+      <PageTransition>
+        <div className="mx-auto max-w-5xl py-8">
+          <LoadingSpinner text="Loading project details..." />
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition>
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="mx-auto max-w-5xl space-y-6">
         <FadeIn>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold">Project Details</h1>
-
-              <p className="text-slate-500 mt-1">
+              <p className="mt-1 text-slate-500">
                 Review your saved paper or proposal project.
               </p>
-
               {pendingInviteToken && (
-                <div className="mt-3 p-3 bg-yellow-50 border-l-4 border-yellow-400 text-sm">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <strong>You were invited to this project.</strong>
-
-                      <div className="mt-1">
-                        Please{" "}
-                        <a
-                          href={`/auth/login?next=${encodeURIComponent(
-                            window.location.pathname + window.location.search,
-                          )}`}
-                          className="underline text-blue-600"
-                        >
-                          log in
-                        </a>{" "}
-                        or{" "}
-                        <a
-                          href={`/auth/signup?next=${encodeURIComponent(
-                            window.location.pathname + window.location.search,
-                          )}`}
-                          className="underline text-blue-600"
-                        >
-                          create an account
-                        </a>{" "}
-                        to accept the invite.
-                      </div>
-                    </div>
-                  </div>
+                <div className="mt-3 rounded border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm">
+                  You were invited to this project. Please{" "}
+                  <a
+                    className="text-blue-600 underline"
+                    href={`/auth/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                  >
+                    log in
+                  </a>{" "}
+                  or{" "}
+                  <a
+                    className="text-blue-600 underline"
+                    href={`/auth/signup?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                  >
+                    create an account
+                  </a>{" "}
+                  to accept the invite.
                 </div>
               )}
             </div>
-
-            <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
                 icon={RefreshCcw}
                 disabled={!project?.query || !project?.papers_data?.length}
-                onClick={() =>
+                onClick={async () => {
+                  await createProposalActivity();
                   navigate("/gap-analysis", {
                     state: {
                       query: project?.query,
                       papers: project?.papers_data,
                     },
-                  })
-                }
+                  });
+                }}
               >
                 Regenerate Gap Analysis
               </Button>
-
               <Button
                 size="sm"
                 variant="secondary"
                 icon={FileText}
                 disabled={!project}
-                onClick={() => setGeneratedSummary(summarizeProject())}
+                onClick={generateProjectSummary}
               >
-                Generate Summary
+                {summaryLoading ? "Generating…" : "Generate Summary"}
               </Button>
-
               <Button
                 size="sm"
                 variant="secondary"
@@ -1126,65 +661,40 @@ export default function ProjectDetailPage() {
               >
                 Generate Research Paper
               </Button>
-
-              {/* <Button
-                size="sm"
-                variant="secondary"
-                icon={ClipboardPen}
-                disabled={
-                  !project?.query ||
-                  !project?.papers_data?.length
-                }
-                onClick={() =>
-                  navigate("/gap-analysis", {
-                    state: {
-                      query: project?.query,
-                      papers:
-                        project?.papers_data,
-                    },
-                  })
-                }
-              >
-                Generate Research Proposal
-              </Button> */}
-
               <Button
                 size="sm"
                 variant="secondary"
                 icon={ClipboardPen}
                 disabled={!project?.query || !project?.papers_data?.length}
-                onClick={async () => {
-                  await createProposalActivity();
-
+                onClick={() =>
                   navigate("/gap-analysis", {
                     state: {
                       query: project?.query,
                       papers: project?.papers_data,
                     },
-                  });
-                }}
+                  })
+                }
               >
                 Generate Research Proposal
               </Button>
-
               <Button
                 size="sm"
                 variant="secondary"
-                icon={RefreshCcw}
+                icon={FileCode}
+                disabled={!project}
                 onClick={exportLaTeX}
               >
                 Export LaTeX
               </Button>
-
               <Button
                 size="sm"
                 variant="secondary"
-                icon={RefreshCcw}
+                icon={FileText}
+                disabled={!project}
                 onClick={exportPDF}
               >
                 Export PDF
               </Button>
-
               <Button size="sm" onClick={() => navigate(-1)}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
@@ -1193,15 +703,9 @@ export default function ProjectDetailPage() {
           </div>
         </FadeIn>
 
-        {loading && (
-          <FadeIn>
-            <LoadingSpinner text="Loading project details..." />
-          </FadeIn>
-        )}
-
         {error && (
           <FadeIn>
-            <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded">
+            <div className="rounded border border-red-200 bg-red-50 p-4 text-red-700">
               {error}
             </div>
           </FadeIn>
@@ -1211,321 +715,141 @@ export default function ProjectDetailPage() {
           <FadeIn>
             <Card>
               <CardBody className="space-y-6">
-                <div>
+                <section>
                   <h2 className="text-xl font-semibold">{project.title}</h2>
-
-                  <p className="text-slate-500 mt-1">{project.description}</p>
-
+                  {project.description && (
+                    <p className="mt-1 text-slate-600">{project.description}</p>
+                  )}
                   <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-500">
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      {project.project_type}
-                    </span>
-
+                    {project.project_type && (
+                      <span className="rounded-full bg-slate-100 px-3 py-1">
+                        {project.project_type}
+                      </span>
+                    )}
                     <span className="rounded-full bg-slate-100 px-3 py-1">
                       Query: {project.query || "N/A"}
                     </span>
-
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      Created {new Date(project.created_at).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-
-                {(generatedSummary || project.content?.abstract) &&
-                  !Array.isArray(project.content?.sections) && (
-                    <div>
-                      <h3 className="font-semibold">Summary / Abstract</h3>
-
-                      <p className="whitespace-pre-wrap text-slate-700 mt-2">
-                        {(
-                          generatedSummary || project.content.abstract
-                        )?.replace(/\\n/g, "\n")}
-                      </p>
-                    </div>
-                  )}
-
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="font-semibold">
-                      {Array.isArray(project.content?.sections) ||
-                      Array.isArray(project.content?.content?.sections)
-                        ? "Paper draft"
-                        : "Content"}
-                    </h3>
-
-                    {renderProjectContent(
-                      editingContent || project.content,
-                      project.query,
+                    {project.created_at && (
+                      <span className="rounded-full bg-slate-100 px-3 py-1">
+                        Created {new Date(project.created_at).toLocaleString()}
+                      </span>
                     )}
+                    {presence.length > 0 && (
+                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+                        {presence.length} collaborator(s) online
+                      </span>
+                    )}
+                  </div>
+                </section>
 
-                    <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div>
-                        {/* <CollabEditor
-  projectId={id}
-  content={project.content}
-  client={clientRef.current}
-  user={JSON.parse(
-    localStorage.getItem("user") || "{}",
-  )}
-  onSave={async ({ content, commit_message }) => {
-    const token = localStorage.getItem("token");
+                {summaryError && (
+                  <p
+                    role="alert"
+                    className="rounded bg-red-50 p-3 text-sm text-red-700"
+                  >
+                    {summaryError}
+                  </p>
+                )}
+                {(generatedSummary ||
+                  document.abstract ||
+                  content.abstract) && (
+                  <section className="rounded-lg bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="font-semibold">
+                        {generatedSummary
+                          ? "Generated Summary"
+                          : "Summary / Abstract"}
+                      </h3>
+                      {generatedSummarySource && (
+                        <span className="text-xs text-slate-500">
+                          Source: {generatedSummarySource}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap leading-7 text-slate-700">
+                      {generatedSummary ||
+                        toText(document.abstract || content.abstract)}
+                    </p>
+                  </section>
+                )}
 
-    const res = await fetch(
-      `http://localhost:8000/api/v1/projects/${id}`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          content,
-          commit_message,
-        }),
-      },
-    );
-
-    if (!res.ok) {
-      const errorData = await res
-        .json()
-        .catch(() => ({}));
-
-      throw new Error(
-        errorData.detail ||
-          "Failed to save project",
-      );
-    }
-
-    const data = await res.json();
-
-    console.log("SAVE RESPONSE:", data);
-
-    // Update only the project content.
-    // Commit message stays in ProjectVersion.
-    if (data.project) {
-      setProject((prev) => ({
-        ...prev,
-        content: data.project.content,
-        updated_at: data.project.updated_at,
-      }));
-    }
-
-    return data;
-  }}
-  presence={presence}
-/> */}
-
-                        <CollabEditor
-                          projectId={id}
-                          content={project.content}
-                          onContentChange={setEditingContent}
-                          client={clientRef.current}
-                          user={JSON.parse(
-                            localStorage.getItem("user") || "{}",
-                          )}
-                          onSave={async ({ content, commit_message }) => {
-                            const token = localStorage.getItem("token");
-
-                            // ----------------------------------------
-                            // Validate commit message on frontend
-                            // ----------------------------------------
-
-                            const trimmedCommitMessage = String(
-                              commit_message || "",
-                            ).trim();
-
-                            if (!trimmedCommitMessage) {
-                              throw new Error(
-                                "Please enter a commit message before saving.",
-                              );
-                            }
-
-                            // ----------------------------------------
-                            // Save project
-                            // ----------------------------------------
-
-                            const res = await fetch(
-                              `http://localhost:8000/api/v1/projects/${id}`,
-                              {
-                                method: "PATCH",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify({
-                                  content,
-                                  commit_message: trimmedCommitMessage,
-                                }),
-                              },
-                            );
-
-                            if (!res.ok) {
-                              const errorData = await res
-                                .json()
-                                .catch(() => ({}));
-
-                              throw new Error(
-                                errorData.detail || "Failed to save project",
-                              );
-                            }
-
-                            const data = await res.json();
-
-                            console.log("SAVE RESPONSE:", data);
-
-                            // ----------------------------------------
-                            // Update project content immediately
-                            // ----------------------------------------
-
-                            if (data.project) {
-                              setProject((prev) => ({
-                                ...prev,
-                                content: data.project.content,
-                                updated_at: data.project.updated_at,
-                              }));
-                            }
-
-                            // ----------------------------------------
-                            // Update Version History immediately
-                            // ----------------------------------------
-
-                            if (data.version) {
-                              setNewVersion(data.version);
-                            }
-
-                            return data;
-                          }}
-                          presence={presence}
-                        />
-
-                        <CommentPanel
-                          projectId={id}
-                          comments={comments}
-                          client={clientRef.current}
-                          user={JSON.parse(
-                            localStorage.getItem("user") || "{}",
-                          )}
-                          onAddComment={async (payload) => {
-                            const token = localStorage.getItem("token");
-
-                            const res = await fetch(
-                              `http://localhost:8000/api/v1/projects/${id}/comments`,
-                              {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify(payload),
-                              },
-                            );
-
-                            if (res.ok) {
-                              const created = await res.json();
-
-                              setComments((c) => [...c, created]);
-
-                              clientRef.current?.send({
-                                type: "comment_created",
-                                payload: created,
-                              });
-                            }
-                          }}
-                        />
-                      </div>
-
-                      <div>
-                        <TeamPanel
-                          projectId={id}
-                          members={members}
-                          client={clientRef.current}
-                          user={JSON.parse(
-                            localStorage.getItem("user") || "{}",
-                          )}
-                          onAddMember={async (payload) => {
-                            const token = localStorage.getItem("token");
-
-                            const res = await fetch(
-                              `http://localhost:8000/api/v1/projects/${id}/members`,
-                              {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify(payload),
-                              },
-                            );
-
-                            if (res.ok) {
-                              const created = await res.json();
-
-                              setMembers((m) => [...m, created]);
-
-                              clientRef.current?.send({
-                                type: "member_added",
-                                payload: created,
-                              });
-                            }
-                          }}
-                        />
-
-                        <VersionHistory
-                          projectId={id}
-                          newVersion={newVersion}
-                        />
-                      </div>
+                <section>
+                  <h3 className="mb-3 font-semibold">
+                    {Array.isArray(document.sections)
+                      ? "Paper draft"
+                      : "Content"}
+                  </h3>
+                  {renderProjectContent(content, project.query)}
+                  <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    <div className="space-y-5">
+                      <CollabEditor
+                        projectId={id}
+                        content={project.content}
+                        onContentChange={setEditingContent}
+                        client={clientRef.current}
+                        user={currentUser()}
+                        onSave={handleSave}
+                        presence={presence}
+                      />
+                      <CommentPanel
+                        projectId={id}
+                        comments={comments}
+                        client={clientRef.current}
+                        user={currentUser()}
+                        onAddComment={addComment}
+                      />
+                    </div>
+                    <div className="space-y-5">
+                      <TeamPanel
+                        projectId={id}
+                        members={members}
+                        ownerId={project.owner_id}
+                        client={clientRef.current}
+                        user={currentUser()}
+                        onAddMember={addMember}
+                        onRemoveMember={(userId) =>
+                          setMembers((existing) =>
+                            existing.filter(
+                              (member) => member.user_id !== userId,
+                            ),
+                          )
+                        }
+                      />
+                      <VersionHistory projectId={id} newVersion={newVersion} />
                     </div>
                   </div>
+                </section>
 
-                  {project.papers_data?.length > 0 && (
-                    <div className="space-y-4">
-                      <h3 className="font-semibold">Saved Papers</h3>
-
-                      <div className="space-y-4 mt-2">
-                        {project.papers_data.map((paper, index) => (
-                          <Card
-                            key={index}
-                            className="border-slate-200 bg-slate-50"
-                          >
-                            <CardBody>
-                              {typeof paper === "string" ||
-                              typeof paper === "number" ? (
-                                <p className="text-slate-700">
-                                  {String(paper)}
-                                </p>
-                              ) : (
-                                renderProjectContent(paper)
-                              )}
-                            </CardBody>
-                          </Card>
-                        ))}
-                      </div>
+                {project.papers_data?.length > 0 && (
+                  <section>
+                    <h3 className="font-semibold">Saved Papers</h3>
+                    <div className="mt-3 space-y-3">
+                      {project.papers_data.map((paper, index) => (
+                        <Card
+                          key={`${paper?.id || paper?.title || "paper"}-${index}`}
+                          className="border-slate-200 bg-slate-50"
+                        >
+                          <CardBody>{renderProjectContent(paper)}</CardBody>
+                        </Card>
+                      ))}
                     </div>
-                  )}
+                    <h3 className="mt-5 font-semibold">Bibliography</h3>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-700">
+                      {project.papers_data.map((paper, index) => (
+                        <li key={`citation-${index}`}>
+                          {makeCitationText(paper, index)}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
 
-                  {project.papers_data?.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold">Bibliography</h3>
-
-                      <ul className="mt-2 list-disc pl-5 text-slate-700 space-y-1">
-                        {project.papers_data.map((paper, index) => (
-                          <li key={index} className="mt-1">
-                            {makeCitationText(paper, index)}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {project.gaps_data && (
-                    <div>
-                      <h3 className="font-semibold">Gap Analysis</h3>
-
-                      {renderProjectContent(project.gaps_data)}
-                    </div>
-                  )}
-                </div>
+                {project.gaps_data && (
+                  <section>
+                    <h3 className="font-semibold">Gap Analysis</h3>
+                    {renderProjectContent(project.gaps_data)}
+                  </section>
+                )}
               </CardBody>
             </Card>
           </FadeIn>

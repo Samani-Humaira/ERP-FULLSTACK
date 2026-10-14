@@ -100,6 +100,10 @@ class PaperResponse(BaseModel):
     sections: list[PaperSection]
 
 
+class PaperPDFRequest(PaperResponse):
+    authors: str | list[str] | None = None
+
+
 class PlagiarismRequest(BaseModel):
     source_text: str = Field(..., min_length=30, description="Text to check for potential duplication")
     papers: list[PaperResult] = Field(..., min_length=1, description="Reference papers to compare against")
@@ -152,6 +156,7 @@ class ProjectResponse(BaseModel):
 
 class ProjectDetailResponse(BaseModel):
     id: str
+    owner_id: str
     title: str
     description: Optional[str]
     project_type: str
@@ -200,15 +205,17 @@ class ProjectMember(BaseModel):
 
 class CommentCreate(BaseModel):
     project_id: str
-    section: Optional[str]
-    parent_id: Optional[str]
-    content: str
+    section: Optional[str] = None
+    parent_id: Optional[str] = None
+    content: str = Field(..., min_length=1, max_length=5000)
 
 
 class CommentResponse(BaseModel):
     id: str
     project_id: str
     user_id: str
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
     section: Optional[str]
     parent_id: Optional[str]
     content: str

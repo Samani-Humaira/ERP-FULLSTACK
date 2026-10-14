@@ -336,14 +336,18 @@ export default function TeamPanel({
   projectId,
   members = [],
   onAddMember,
+  onRemoveMember,
+  ownerId,
   client,
   user,
 }) {
   const [email, setEmail] = useState("");
   const [invites, setInvites] = useState([]);
   const [message, setMessage] = useState("");
+  const [messageIsError, setMessageIsError] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const isProjectOwner = String(user?.id || "") === String(ownerId || "");
 
   useEffect(() => {
     const fetchInvites = async () => {
@@ -397,8 +401,9 @@ export default function TeamPanel({
     fetchNotifications();
   }, [projectId]);
 
-  const showMessage = (text, duration = 3000) => {
+  const showMessage = (text, duration = 3000, isError = false) => {
     setMessage(text);
+    setMessageIsError(isError);
 
     setTimeout(() => {
       setMessage("");
@@ -435,55 +440,63 @@ export default function TeamPanel({
 
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({}));
-          throw new Error(
-            errorData.detail || "Failed to send invitation.",
-          );
+          throw new Error(errorData.detail || "Failed to send invitation.");
         }
 
         const body = await res.json();
 
-        showMessage("Invite sent");
+        // Keep only invitations that were successfully persisted by the API.
+        if (Array.isArray(body?.sent)) {
+          const newInvites = body.sent
+            .filter((invite) => invite.invite_id)
+            .map((s) => {
+              const link = s.link;
 
-        // Add newly-created invites to local state
-        if (body?.sent && Array.isArray(body.sent)) {
-          const newInvites = body.sent.map((s) => {
-            const link = s.link;
+              let tokenVal = null;
 
-            let tokenVal = null;
+              try {
+                tokenVal = link
+                  ? new URL(link).searchParams.get("invite_token")
+                  : null;
+              } catch (error) {
+                tokenVal = null;
+              }
 
-            try {
-              tokenVal = link
-                ? new URL(link).searchParams.get("invite_token")
-                : null;
-            } catch (error) {
-              tokenVal = null;
-            }
+              return {
+                id: String(s.invite_id),
 
-            return {
-              id:
-                s.invite_id ||
-                (tokenVal
-                  ? tokenVal.slice(0, 8)
-                  : `${Date.now()}-${Math.random()}`),
+                project_id: projectId,
+                email: s.email,
+                role: s.role || "editor",
+                token: tokenVal,
+                created_by: null,
+                created_at: new Date().toISOString(),
 
-              project_id: projectId,
-              email: s.email,
-              role: s.role,
-              token: tokenVal,
-              created_by: null,
-              created_at: new Date().toISOString(),
+                // New invite is pending
+                accepted: false,
+                accepted_at: null,
 
-              // New invite is pending
-              accepted: false,
-              accepted_at: null,
-
-              link: s.link,
-            };
-          });
+                link: s.link,
+              };
+            });
 
           setInvites((prev) => [...newInvites, ...prev]);
+
+          const failed = body.sent.find((invite) => !invite.sent);
+          if (failed) {
+            showMessage(
+              failed.error ||
+                "Invitation saved, but email delivery failed. Check the SMTP configuration.",
+              6000,
+              true,
+            );
+          } else if (newInvites.length) {
+            showMessage("Invitation sent successfully.");
+          } else {
+            showMessage("Invitation could not be saved.", 6000);
+          }
         } else {
-          // Fallback: reload invites
+          // Reload invitations if the server response has no per-address results.
           const invRes = await fetch(
             `http://localhost:8000/api/v1/projects/${projectId}/invites`,
             {
@@ -496,12 +509,16 @@ export default function TeamPanel({
           if (invRes.ok) {
             setInvites(await invRes.json());
           }
+          showMessage(
+            "Invitation request completed; refresh to verify its status.",
+            6000,
+          );
         }
 
         setEmail("");
       } catch (error) {
         console.error("Failed to send invite:", error);
-        showMessage(error.message || "Failed to send invite.");
+        showMessage(error.message || "Failed to send invite.", 5000, true);
       }
 
       return;
@@ -572,18 +589,53 @@ export default function TeamPanel({
       );
 
       if (!res.ok) {
-        throw new Error("Failed to revoke invite.");
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(
+          errorData.detail || `Failed to revoke invite (HTTP ${res.status}).`,
+        );
       }
 
       // Remove from local state immediately
-      setInvites((prev) =>
-        prev.filter((invite) => invite.id !== inviteId),
-      );
+      setInvites((prev) => prev.filter((invite) => invite.id !== inviteId));
 
       showMessage("Invite revoked");
     } catch (error) {
       console.error("Failed to revoke invite:", error);
-      showMessage(error.message || "Failed to revoke invite.");
+      showMessage(error.message || "Failed to revoke invite.", 5000, true);
+    }
+  };
+
+  const removeMember = async (member) => {
+    if (!isProjectOwner || !member?.user_id) return;
+    const memberName = member.full_name || member.email || "this collaborator";
+    if (!window.confirm(`Remove ${memberName} from this project?`)) return;
+
+    const token = localStorage.getItem("token");
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/v1/projects/${projectId}/members/${member.user_id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(
+          errorData.detail ||
+            `Failed to remove collaborator (HTTP ${res.status}).`,
+        );
+      }
+
+      onRemoveMember?.(member.user_id);
+      showMessage(`${memberName} was removed from the project.`);
+    } catch (error) {
+      console.error("Failed to remove collaborator:", error);
+      showMessage(
+        error.message || "Failed to remove collaborator.",
+        5000,
+        true,
+      );
     }
   };
 
@@ -615,9 +667,7 @@ export default function TeamPanel({
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
 
-        throw new Error(
-          errorData.detail || "Failed to accept invitation.",
-        );
+        throw new Error(errorData.detail || "Failed to accept invitation.");
       }
 
       /*
@@ -642,7 +692,9 @@ export default function TeamPanel({
 
       // Remove notification immediately
       setNotifications((prev) =>
-        prev.filter((notificationItem) => notificationItem.id !== notification.id),
+        prev.filter(
+          (notificationItem) => notificationItem.id !== notification.id,
+        ),
       );
 
       showMessage("Invite accepted", 2000);
@@ -707,22 +759,19 @@ export default function TeamPanel({
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
 
-        throw new Error(
-          errorData.detail || "Failed to reject invitation.",
-        );
+        throw new Error(errorData.detail || "Failed to reject invitation.");
       }
 
       // Remove notification
       setNotifications((prev) =>
-        prev.filter((notificationItem) => notificationItem.id !== notification.id),
+        prev.filter(
+          (notificationItem) => notificationItem.id !== notification.id,
+        ),
       );
 
       // If this invite exists locally, remove it from pending invites
       setInvites((prev) =>
-        prev.filter(
-          (invite) =>
-            String(invite.id) !== String(inviteId),
-        ),
+        prev.filter((invite) => String(invite.id) !== String(inviteId)),
       );
 
       showMessage("Invite rejected", 2000);
@@ -736,9 +785,7 @@ export default function TeamPanel({
    * ONLY invitations that have NOT been accepted
    * are considered pending.
    */
-  const pendingInvites = invites.filter(
-    (invite) => invite.accepted !== true,
-  );
+  const pendingInvites = invites.filter((invite) => invite.accepted !== true);
 
   const projectNotifications = notifications.filter(
     (notification) =>
@@ -753,9 +800,7 @@ export default function TeamPanel({
         <h4 className="font-semibold">Team 1</h4>
 
         <button
-          onClick={() =>
-            setNotificationsOpen((state) => !state)
-          }
+          onClick={() => setNotificationsOpen((state) => !state)}
           className="text-sm text-blue-600 underline"
         >
           Notifications
@@ -775,21 +820,15 @@ export default function TeamPanel({
 
           <ul className="mt-2 space-y-2">
             {projectNotifications.map((notification) => (
-              <li
-                key={notification.id}
-                className="p-2 border rounded"
-              >
+              <li key={notification.id} className="p-2 border rounded">
                 <div className="text-sm">
-                  Invite to join project •{" "}
-                  {notification.payload?.role}
+                  Invite to join project • {notification.payload?.role}
                 </div>
 
                 <div className="mt-2 space-x-2">
                   {/* ACCEPT */}
                   <button
-                    onClick={() =>
-                      acceptInvite(notification)
-                    }
+                    onClick={() => acceptInvite(notification)}
                     className="px-2 py-1 bg-green-600 text-white rounded text-xs"
                   >
                     Accept
@@ -797,9 +836,7 @@ export default function TeamPanel({
 
                   {/* REJECT */}
                   <button
-                    onClick={() =>
-                      rejectInvite(notification)
-                    }
+                    onClick={() => rejectInvite(notification)}
                     className="px-2 py-1 bg-red-500 text-white rounded text-xs"
                   >
                     Reject
@@ -816,9 +853,23 @@ export default function TeamPanel({
         {members.map((member) => (
           <li
             key={member.user_id}
-            className="p-2 border rounded bg-white text-sm"
+            className="flex items-center justify-between gap-3 p-2 border rounded bg-white text-sm"
           >
-            {member.email || member.user_id} • {member.role}
+            <span>
+              {member.full_name || member.email || member.user_id}
+              {member.full_name && member.email
+                ? ` (${member.email})`
+                : ""} • {member.role}
+            </span>
+            {isProjectOwner && String(member.user_id) !== String(ownerId) && (
+              <button
+                type="button"
+                onClick={() => removeMember(member)}
+                className="shrink-0 rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700"
+              >
+                Remove
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -842,7 +893,9 @@ export default function TeamPanel({
 
       {/* Message */}
       {message && (
-        <div className="mt-2 text-sm text-green-600">
+        <div
+          className={`mt-2 text-sm ${messageIsError ? "text-red-600" : "text-green-600"}`}
+        >
           {message}
         </div>
       )}
@@ -850,9 +903,7 @@ export default function TeamPanel({
       {/* Pending Invites */}
       {pendingInvites.length > 0 && (
         <div className="mt-3">
-          <h5 className="font-semibold">
-            Pending Invites
-          </h5>
+          <h5 className="font-semibold">Pending Invites</h5>
 
           <ul className="mt-2 space-y-2">
             {pendingInvites.map((invite) => (
@@ -869,12 +920,13 @@ export default function TeamPanel({
                     {/* Invite link */}
                     {invite.token && (
                       <div className="mt-1 text-xs text-slate-600">
-                        <span className="mr-2">
-                          Invite link:
-                        </span>
+                        <span className="mr-2">Invite link:</span>
 
                         <a
-                          href={`${window.location.origin}/projects/${projectId}?invite_token=${invite.token}`}
+                          href={
+                            invite.link ||
+                            `${window.location.origin}/projects/${projectId}?invite_token=${invite.token}`
+                          }
                           target="_blank"
                           rel="noreferrer"
                           className="underline text-blue-600"
@@ -885,13 +937,11 @@ export default function TeamPanel({
                         <button
                           onClick={() => {
                             navigator.clipboard.writeText(
-                              `${window.location.origin}/projects/${projectId}?invite_token=${invite.token}`,
+                              invite.link ||
+                                `${window.location.origin}/projects/${projectId}?invite_token=${invite.token}`,
                             );
 
-                            showMessage(
-                              "Link copied",
-                              2000,
-                            );
+                            showMessage("Link copied", 2000);
                           }}
                           className="ml-2 px-2 py-0.5 text-xs bg-slate-200 rounded"
                         >
@@ -919,9 +969,7 @@ export default function TeamPanel({
 
       {/* No pending invites */}
       {pendingInvites.length === 0 && (
-        <div className="mt-3 text-sm text-slate-500">
-          No pending invites.
-        </div>
+        <div className="mt-3 text-sm text-slate-500">No pending invites.</div>
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import DashboardLayout from "./components/layout/DashboardLayout";
 import LoginPage from "./pages/auth/LoginPage";
 import SignUpPage from "./pages/auth/SignUpPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import ResearchInputPage from "./pages/ResearchInputPage";
 import PapersPage from "./pages/PapersPage";
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignUpPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* App routes with dashboard layout */}
         <Route element={<DashboardLayout />}>
@@ -34,7 +36,10 @@ export default function App() {
           <Route path="/proposal" element={<ProposalPage />} />
           <Route path="/paper" element={<PaperPage />} />
           <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/projects/:projectId/versions" element={<AllVersions />} />
+          <Route
+            path="/projects/:projectId/versions"
+            element={<AllVersions />}
+          />
         </Route>
 
         {/* Default redirect */}

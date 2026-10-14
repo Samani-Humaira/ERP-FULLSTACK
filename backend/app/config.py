@@ -40,7 +40,7 @@ class Settings:
     SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").strip().lower() in ("1", "true", "yes")
 
     # Frontend URL for invite links
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000").strip()
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173").strip()
     # When true, save raw sent emails to backend/email_logs for debugging
     SAVE_SENT_EMAILS: bool = os.getenv("SAVE_SENT_EMAILS", "false").strip().lower() in ("1", "true", "yes")
 

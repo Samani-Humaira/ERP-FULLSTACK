@@ -21,7 +21,7 @@ from reportlab.platypus import (
     Spacer,
 )
 
-from app.schemas import PaperResponse
+from app.schemas import PaperPDFRequest, PaperResponse
 
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
@@ -222,7 +222,10 @@ def _to_roman(number: int) -> str:
     return "".join(result)
 
 
-def generate_pdf(paper: PaperResponse) -> bytes:
+def generate_pdf(
+    paper: PaperResponse | PaperPDFRequest,
+    authors: str | list[str] | None = None,
+) -> bytes:
     """Generate an A4 academic PDF with a full-width abstract and justified columns."""
     buffer = BytesIO()
     doc = BaseDocTemplate(
@@ -247,12 +250,24 @@ def generate_pdf(paper: PaperResponse) -> bytes:
     story = [
         Paragraph(html.escape(paper.title), styles["title"]),
         Spacer(1, 8),
+    ]
+    author_text = authors if authors is not None else getattr(paper, "authors", None)
+    if isinstance(author_text, list):
+        author_text = ", ".join(str(author) for author in author_text if author)
+    if isinstance(author_text, str) and author_text.strip():
+        story.extend(
+            [
+                Paragraph(html.escape(author_text.strip()), styles["author"]),
+                Spacer(1, 6),
+            ]
+        )
+    story.extend([
         Paragraph("ABSTRACT", styles["abstract_heading"]),
         *_paragraphs(paper.abstract, styles["abstract"]),
         Spacer(1, 4),
         FrameBreak(),
         NextPageTemplate("body"),
-    ]
+    ])
 
     section_number = 0
     for section in paper.sections:

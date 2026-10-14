@@ -124,6 +124,7 @@ async def get_project(
 
         return ProjectDetailResponse(
             id=str(project.id),
+            owner_id=str(project.user_id),
             title=project.title,
             description=project.description,
             project_type=project.project_type,

@@ -318,13 +318,27 @@ export default function TopNavbar({ onMenuClick }) {
         );
 
         if (r.ok) {
-          setNotifications(await r.json());
+          const data = await r.json();
+          setNotifications(data.filter((notification) => !notification.read));
         }
       } catch (e) {}
     };
 
     fetchNotes();
-  }, []);
+    const interval = window.setInterval(fetchNotes, 30000);
+    const handleFocus = () => fetchNotes();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") fetchNotes();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [notesOpen]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -455,8 +469,16 @@ export default function TopNavbar({ onMenuClick }) {
 
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium text-slate-700">
-                            {n.type}
+                            {n.type === "invite"
+                              ? `Project invitation: ${n.payload?.project_title || "Research project"}`
+                              : n.type}
                           </div>
+
+                          {n.type === "invite" && n.payload?.invited_by && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Invited by {n.payload.invited_by}
+                            </p>
+                          )}
 
                           {n.type === "invite" && (
                             <div className="mt-2 flex items-center gap-2 flex-wrap">
@@ -474,12 +496,18 @@ export default function TopNavbar({ onMenuClick }) {
                                 Reject
                               </button>
 
-                              {/* <a
-                                href={n.payload?.link}
-                                className="ml-auto text-xs text-blue-600 hover:text-blue-700 underline"
-                              >
-                                Open
-                              </a> */}
+                              {n.payload?.link && (
+                                <Link
+                                  to={n.payload.link.replace(
+                                    /^https?:\/\/[^/]+/,
+                                    "",
+                                  )}
+                                  className="ml-auto text-xs text-blue-600 hover:text-blue-700 underline"
+                                  onClick={() => setNotesOpen(false)}
+                                >
+                                  View project
+                                </Link>
+                              )}
                             </div>
                           )}
                         </div>

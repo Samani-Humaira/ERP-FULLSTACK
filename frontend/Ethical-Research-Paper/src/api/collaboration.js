@@ -25,7 +25,11 @@ class CollabClient {
       } catch (e) {}
     });
 
-    this.ws.addEventListener('close', () => {});
+    this.ws.addEventListener('close', (event) => {
+      if (event.code === 1008 && this.onMessage) {
+        this.onMessage({ type: 'access_revoked' });
+      }
+    });
   }
 
   send(obj) {
@@ -52,7 +56,7 @@ export default CollabClient;
 
 
 
-const API_URL = "http://localhost:8000";
+const API_URL = "http://localhost:8000/api/v1";
 
 
 export async function getProjectMessages(
@@ -116,7 +120,12 @@ export async function createComment(
         Authorization: `Bearer ${token}`,
       },
 
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        project_id: projectId,
+        section: null,
+        parent_id: null,
+        ...data,
+      }),
     }
   );
 

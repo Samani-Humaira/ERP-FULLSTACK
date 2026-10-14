@@ -20,9 +20,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _require_project_access(project_id: str, current_user, db: Session):
+    from app.models.project import Project
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.user_id) == str(current_user.id):
+        return project
+
+    membership = (
+        db.query(PMModel)
+        .filter(
+            PMModel.project_id == project_id,
+            PMModel.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
 @router.post("/projects/{project_id}/members", response_model=ProjectMember)
 async def add_project_member(project_id: str, payload: ProjectMember, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    # Only allow project owner or admins to add members in a fuller implementation
+    project = _require_project_access(project_id, current_user, db)
+    if payload.role == MemberRole.OWNER:
+        raise HTTPException(status_code=400, detail="Project ownership cannot be assigned through member addition")
+    if str(project.user_id) != str(current_user.id):
+        membership = db.query(PMModel).filter(
+            PMModel.project_id == project_id,
+            PMModel.user_id == current_user.id,
+        ).first()
+        if not membership or membership.role != MemberRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Only the project owner or an admin may add members")
     try:
         member = PMModel(
             project_id=project_id,
@@ -53,12 +84,97 @@ async def add_project_member(project_id: str, payload: ProjectMember, db: Sessio
 
 @router.get("/projects/{project_id}/members", response_model=list[ProjectMember])
 async def list_project_members(project_id: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    members = db.query(PMModel).filter(PMModel.project_id == project_id).all()
-    return [ProjectMember(user_id=str(m.user_id), email=None, full_name=None, role=m.role) for m in members]
+    project = _require_project_access(project_id, current_user, db)
+    members = (
+        db.query(PMModel, User)
+        .join(User, User.id == PMModel.user_id)
+        .filter(PMModel.project_id == project_id)
+        .all()
+    )
+    result = [
+        ProjectMember(
+            user_id=str(member.user_id),
+            email=user.email,
+            full_name=user.full_name,
+            role=member.role,
+        )
+        for member, user in members
+    ]
+    if not any(item.user_id == str(project.user_id) for item in result):
+        owner = db.query(User).filter(User.id == project.user_id).first()
+        if owner:
+            result.insert(
+                0,
+                ProjectMember(
+                    user_id=str(owner.id),
+                    email=owner.email,
+                    full_name=owner.full_name,
+                    role=MemberRole.OWNER,
+                ),
+            )
+    return result
+
+
+@router.delete("/projects/{project_id}/members/{member_user_id}")
+async def remove_project_member(
+    project_id: str,
+    member_user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    from app.models.project import Project
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.user_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Only the project owner may remove collaborators")
+    if member_user_id == project.user_id:
+        raise HTTPException(status_code=400, detail="The project owner cannot be removed")
+
+    memberships = db.query(PMModel).filter(
+        PMModel.project_id == project_id,
+        PMModel.user_id == member_user_id,
+    ).all()
+    if not memberships:
+        raise HTTPException(status_code=404, detail="Collaborator not found")
+
+    member = db.query(User).filter(User.id == member_user_id).first()
+    try:
+        for membership in memberships:
+            db.delete(membership)
+
+        if member:
+            related_invites = db.query(InviteModel).filter(
+                InviteModel.project_id == project_id,
+                func.lower(InviteModel.email) == member.email.lower(),
+            ).all()
+            invite_ids = [str(invite.id) for invite in related_invites]
+            for invite in related_invites:
+                db.delete(invite)
+            if invite_ids:
+                db.query(NotificationModel).filter(
+                    NotificationModel.payload["invite_id"].astext.in_(invite_ids)
+                ).delete(synchronize_session=False)
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to remove collaborator %s from %s", member_user_id, project_id)
+        raise HTTPException(status_code=500, detail="Failed to remove collaborator") from exc
+
+    removed_user_id = str(member_user_id)
+    await ws_manager.remove_user(project_id, removed_user_id)
+    await ws_manager.broadcast(
+        project_id,
+        {"type": "member_removed", "payload": {"user_id": removed_user_id}},
+    )
+    return {"removed": True, "user_id": removed_user_id}
 
 
 @router.post("/projects/{project_id}/comments", response_model=CommentResponse)
 async def create_comment(project_id: str, payload: CommentCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    _require_project_access(project_id, current_user, db)
     try:
         comment = CommentModel(
             project_id=project_id,
@@ -75,6 +191,8 @@ async def create_comment(project_id: str, payload: CommentCreate, db: Session = 
             id=str(comment.id),
             project_id=str(comment.project_id),
             user_id=str(comment.user_id),
+            user_name=current_user.full_name,
+            user_email=current_user.email,
             section=comment.section,
             parent_id=str(comment.parent_id) if comment.parent_id else None,
             content=comment.content,
@@ -82,7 +200,7 @@ async def create_comment(project_id: str, payload: CommentCreate, db: Session = 
             resolved=comment.resolved,
         )
         try:
-            await ws_manager.broadcast(project_id, {"type": "comment_created", "payload": created.dict()})
+            await ws_manager.broadcast(project_id, {"type": "comment_created", "payload": created.model_dump(mode="json")})
         except Exception:
             pass
         return created
@@ -94,24 +212,34 @@ async def create_comment(project_id: str, payload: CommentCreate, db: Session = 
 
 @router.get("/projects/{project_id}/comments", response_model=list[CommentResponse])
 async def list_comments(project_id: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    comments = db.query(CommentModel).filter(CommentModel.project_id == project_id).order_by(CommentModel.created_at.asc()).all()
+    _require_project_access(project_id, current_user, db)
+    comments = (
+        db.query(CommentModel, User)
+        .join(User, User.id == CommentModel.user_id)
+        .filter(CommentModel.project_id == project_id)
+        .order_by(CommentModel.created_at.asc())
+        .all()
+    )
     return [
         CommentResponse(
             id=str(c.id),
             project_id=str(c.project_id),
             user_id=str(c.user_id),
+            user_name=user.full_name,
+            user_email=user.email,
             section=c.section,
             parent_id=str(c.parent_id) if c.parent_id else None,
             content=c.content,
             created_at=c.created_at,
             resolved=c.resolved,
         )
-        for c in comments
+        for c, user in comments
     ]
 
 
 @router.post("/projects/{project_id}/versions", response_model=DocumentVersionResponse)
 async def create_version(project_id: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    _require_project_access(project_id, current_user, db)
     try:
         # determine next version number
         last = db.query(VersionModel).filter(VersionModel.project_id == project_id).order_by(VersionModel.version_number.desc()).first()
@@ -151,6 +279,7 @@ async def create_version(project_id: str, db: Session = Depends(get_db), current
 
 @router.get("/projects/{project_id}/versions", response_model=list[DocumentVersionResponse])
 async def list_versions(project_id: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    _require_project_access(project_id, current_user, db)
     vers = db.query(VersionModel).filter(VersionModel.project_id == project_id).order_by(VersionModel.version_number.asc()).all()
     return [
         DocumentVersionResponse(
@@ -170,7 +299,7 @@ async def list_versions(project_id: str, db: Session = Depends(get_db), current_
 async def invite_collaborators(project_id: str, payload: dict, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Send invite emails to provided addresses. Payload: { "emails": [str], "role": "editor" }
     Requires the caller to be an authenticated user. In production this should enforce owner/admin only."""
-    emails = payload.get('emails') or []
+    emails = [str(email).strip().lower() for email in (payload.get('emails') or []) if str(email).strip()]
     role = payload.get('role', 'editor')
     if not emails:
         raise HTTPException(status_code=400, detail="No emails provided")
@@ -200,7 +329,6 @@ async def invite_collaborators(project_id: str, payload: dict, db: Session = Dep
         link = f"{settings.FRONTEND_URL}/projects/{project_id}?invite_token={token}"
         subject = f"You're invited to collaborate on project {project.title or project_id}"
         html = f"<p>You've been invited to collaborate on <strong>{project.title or project_id}</strong>. Click <a href=\"{link}\">here</a> to open the project and accept the invite.</p>"
-        ok = send_email(em, subject, html, text_body=f"Open the link to accept: {link}", invite_link=link)
 
         # Always append the invite link to a local file so developers can copy it if email delivery fails
         try:
@@ -217,22 +345,50 @@ async def invite_collaborators(project_id: str, payload: dict, db: Session = Dep
             db.add(inv)
             db.commit()
             db.refresh(inv)
-            sent.append({"email": em, "sent": ok, "invite_id": str(inv.id), "link": link})
-            # If a user account exists with this email, create an in-app notification for them
-            try:
-                # case-insensitive match
-                u = db.query(User).filter(func.lower(User.email) == em.lower()).first()
-                if u:
-                    note = NotificationModel(user_id=u.id, type='invite', payload={"invite_id": str(inv.id), "project_id": str(project_id), "link": link, "role": role})
-                    db.add(note)
-                    db.commit()
-            except Exception:
-                db.rollback()
-                logger.exception("Failed to create notification for invite")
         except Exception:
             db.rollback()
-            # still return the invite link for development/testing even if persisting failed
-            sent.append({"email": em, "sent": ok, "invite_id": None, "link": link})
+            logger.exception("Failed to persist invite for %s", em)
+            sent.append({"email": em, "sent": False, "invite_id": None, "link": None, "error": "Could not save invitation."})
+            continue
+
+        # If a user account exists with this email, create an in-app notification.
+        try:
+            user = db.query(User).filter(func.lower(User.email) == em.lower()).first()
+            if user:
+                note = NotificationModel(
+                    user_id=user.id,
+                    type="invite",
+                    payload={
+                        "invite_id": str(inv.id),
+                        "project_id": str(project_id),
+                        "project_title": project.title or "Research project",
+                        "invited_by": current_user.full_name or current_user.email,
+                        "link": link,
+                        "role": role,
+                    },
+                )
+                db.add(note)
+                db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to create notification for invite")
+
+        delivered = send_email(
+            em,
+            subject,
+            html,
+            text_body=f"Open the link to accept: {link}",
+        )
+        sent.append(
+            {
+                "email": em,
+                "role": role,
+                "sent": delivered,
+                "invite_id": str(inv.id),
+                "link": link,
+                "error": None if delivered else "Invitation saved, but email delivery failed.",
+            }
+        )
 
     return {"sent": sent}
 
@@ -328,6 +484,9 @@ async def revoke_invite(project_id: str, invite_id: str, db: Session = Depends(g
     if not inv:
         raise HTTPException(status_code=404, detail="Invite not found")
     try:
+        db.query(NotificationModel).filter(
+            NotificationModel.payload["invite_id"].astext == str(inv.id)
+        ).delete(synchronize_session=False)
         db.delete(inv)
         db.commit()
         return {"revoked": True}
@@ -338,7 +497,73 @@ async def revoke_invite(project_id: str, invite_id: str, db: Session = Depends(g
 
 @router.get("/users/me/notifications", response_model=list[NotificationResponse])
 async def list_my_notifications(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    notes = db.query(NotificationModel).filter(NotificationModel.user_id == current_user.id).order_by(NotificationModel.created_at.desc()).all()
+    # Reconcile pending invites by email so previously sent invitations also
+    # appear for users who registered later or missed notification creation.
+    try:
+        existing_invite_notes = (
+            db.query(NotificationModel)
+            .filter(
+                NotificationModel.user_id == current_user.id,
+                NotificationModel.type == "invite",
+            )
+            .all()
+        )
+        existing_invite_ids = {
+            str(note.payload.get("invite_id"))
+            for note in existing_invite_notes
+            if note.payload and note.payload.get("invite_id")
+        }
+        pending_invites = (
+            db.query(InviteModel)
+            .filter(
+                func.lower(InviteModel.email) == current_user.email.lower(),
+                InviteModel.accepted.is_(False),
+            )
+            .all()
+        )
+        from app.models.project import Project
+
+        added_notification = False
+        for invite in pending_invites:
+            invite_id = str(invite.id)
+            if invite_id in existing_invite_ids:
+                continue
+            project = db.query(Project).filter(Project.id == invite.project_id).first()
+            creator = db.query(User).filter(User.id == invite.created_by).first()
+            db.add(
+                NotificationModel(
+                    user_id=current_user.id,
+                    type="invite",
+                    payload={
+                        "invite_id": invite_id,
+                        "project_id": str(invite.project_id),
+                        "project_title": project.title if project else "Research project",
+                        "invited_by": creator.full_name if creator else "A project owner",
+                        "link": (
+                            f"{settings.FRONTEND_URL}/projects/{invite.project_id}"
+                            f"?invite_token={invite.token}"
+                        ),
+                        "role": invite.role.value,
+                    },
+                )
+            )
+            existing_invite_ids.add(invite_id)
+            added_notification = True
+        if added_notification:
+            db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to reconcile invitation notifications")
+
+    notes = (
+        db.query(NotificationModel)
+        .filter(
+            NotificationModel.user_id == current_user.id,
+            NotificationModel.read.is_(False),
+        )
+        .order_by(NotificationModel.created_at.desc())
+        .all()
+    )
     out = []
     for n in notes:
         out.append(NotificationResponse(id=str(n.id), user_id=str(n.user_id), type=n.type, payload=n.payload, read=n.read, created_at=n.created_at))
